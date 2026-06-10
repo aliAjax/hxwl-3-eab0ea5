@@ -77,6 +77,21 @@ type SuggestionItem = {
   relatedInsect?: string;
 };
 
+type CalendarDayChallenge = {
+  dateStr: string;
+  date: Date;
+  dayOfWeek: string;
+  dayOfMonth: number;
+  isToday: boolean;
+  challenge: Challenge;
+  recommendedSeason: Season;
+  beneficialInsects: Insect[];
+  keyMetrics: Metric[];
+  suggestedMaterials: Decoration[];
+};
+
+const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
 const storageKey = "hxwl-3-hotel";
 const challengeStorageKey = "hxwl-3-challenge";
 const snapshotStorageKey = "hxwl-3-snapshots";
@@ -370,6 +385,115 @@ function getTodayChallenge(): Challenge {
   return challengePool[index];
 }
 
+function getChallengeForDate(date: Date): Challenge {
+  const dayOfYear = getLocalDayOfYear(date);
+  const index = dayOfYear % challengePool.length;
+  return challengePool[index];
+}
+
+function getDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getSeasonForDate(date: Date): Season {
+  const month = date.getMonth();
+  if (month >= 2 && month <= 4) return seasons[0];
+  if (month >= 5 && month <= 7) return seasons[1];
+  if (month >= 8 && month <= 10) return seasons[2];
+  return seasons[3];
+}
+
+function getBeneficialInsectsForChallenge(challenge: Challenge): Insect[] {
+  const insectIds: string[] = [];
+  if (challenge.type === "attract") {
+    insectIds.push(challenge.target.insectId as string);
+  } else if (challenge.type === "dual_insect") {
+    insectIds.push(...(challenge.target.insectIds as string[]));
+  } else if (challenge.type === "metric_limit") {
+    const metric = challenge.target.metric as Metric;
+    insects.forEach((insect) => {
+      if (insect.likes[metric] !== undefined) {
+        insectIds.push(insect.id);
+      }
+    });
+  }
+  return insectIds
+    .filter((id, idx, arr) => arr.indexOf(id) === idx)
+    .map((id) => insects.find((i) => i.id === id))
+    .filter(Boolean) as Insect[];
+}
+
+function getKeyMetricsForChallenge(challenge: Challenge): Metric[] {
+  const metrics: Metric[] = [];
+  if (challenge.type === "attract") {
+    const insect = insects.find((i) => i.id === challenge.target.insectId);
+    if (insect) {
+      Object.keys(insect.likes).forEach((m) => metrics.push(m as Metric));
+    }
+  } else if (challenge.type === "dual_insect") {
+    (challenge.target.insectIds as string[]).forEach((id) => {
+      const insect = insects.find((i) => i.id === id);
+      if (insect) {
+        Object.keys(insect.likes).forEach((m) => {
+          if (!metrics.includes(m as Metric)) metrics.push(m as Metric);
+        });
+      }
+    });
+  } else if (challenge.type === "metric_limit") {
+    metrics.push(challenge.target.metric as Metric);
+  }
+  return metrics;
+}
+
+function getSuggestedMaterialsForChallenge(
+  challenge: Challenge,
+  season: Season
+): Decoration[] {
+  const keyMetrics = getKeyMetricsForChallenge(challenge);
+  const scored = decorations.map((deco) => {
+    let score = 0;
+    keyMetrics.forEach((m) => {
+      let value = deco.metrics[m];
+      if (value > 0 && season.affectedMetrics.includes(m)) {
+        value += season.metricBoosts[m] || 0;
+      }
+      score += value;
+    });
+    return { deco, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 3).map((s) => s.deco);
+}
+
+function generateWeekCalendar(): CalendarDayChallenge[] {
+  const result: CalendarDayChallenge[] = [];
+  const today = new Date();
+  const todayStr = getDateString(today);
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    const challenge = getChallengeForDate(date);
+    const recommendedSeason = getSeasonForDate(date);
+    result.push({
+      dateStr: getDateString(date),
+      date,
+      dayOfWeek: WEEKDAY_NAMES[date.getDay()],
+      dayOfMonth: date.getDate(),
+      isToday: getDateString(date) === todayStr,
+      challenge,
+      recommendedSeason,
+      beneficialInsects: getBeneficialInsectsForChallenge(challenge),
+      keyMetrics: getKeyMetricsForChallenge(challenge),
+      suggestedMaterials: getSuggestedMaterialsForChallenge(challenge, recommendedSeason)
+    });
+  }
+  return result;
+}
+
 function loadChallengeState(): ChallengeState {
   const today = getTodayString();
   try {
@@ -466,6 +590,10 @@ export default function App() {
   const [snapshotName, setSnapshotName] = useState("");
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
+  const [showEcoCalendar, setShowEcoCalendar] = useState(false);
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<CalendarDayChallenge | null>(null);
+
+  const weekCalendar = useMemo(() => generateWeekCalendar(), []);
 
   const [dragSource, setDragSource] = useState<DragSource>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -1182,6 +1310,7 @@ export default function App() {
           >
             {currentSeason ? `${currentSeason.icon} ${currentSeason.name}` : "🌍 选择季节"}
           </button>
+          <button onClick={() => setShowEcoCalendar(true)}>📅 生态日历</button>
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
@@ -1831,6 +1960,192 @@ export default function App() {
                 确认选择
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showEcoCalendar && (
+        <div className="eco-calendar-overlay" onClick={() => { setShowEcoCalendar(false); setSelectedCalendarDay(null); }}>
+          <div className="eco-calendar-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="eco-calendar-header">
+              <div>
+                <p className="eyebrow">生态日历</p>
+                <h2>未来7天生态行程</h2>
+                <p className="eco-calendar-hint">预览每日挑战、推荐季节、受益昆虫和关键环境指标，点击查看详情和材料建议。</p>
+              </div>
+              <button className="eco-calendar-close" onClick={() => { setShowEcoCalendar(false); setSelectedCalendarDay(null); }}>✕</button>
+            </div>
+
+            <div className="eco-calendar-week">
+              {weekCalendar.map((day) => (
+                <button
+                  key={day.dateStr}
+                  className={`eco-calendar-day-card ${day.isToday ? "today" : ""} ${selectedCalendarDay?.dateStr === day.dateStr ? "selected" : ""}`}
+                  style={selectedCalendarDay?.dateStr === day.dateStr ? { borderColor: day.recommendedSeason.color } : {}}
+                  onClick={() => setSelectedCalendarDay(day)}
+                >
+                  <div className="eco-calendar-day-header" style={day.isToday ? { background: day.recommendedSeason.color } : {}}>
+                    <span className="eco-calendar-weekday">{day.dayOfWeek}</span>
+                    <span className="eco-calendar-date">{day.dayOfMonth}日</span>
+                    {day.isToday && <span className="eco-calendar-today-badge">今天</span>}
+                  </div>
+                  <div className="eco-calendar-day-body">
+                    <div className="eco-calendar-season-tag" style={{ color: day.recommendedSeason.color }}>
+                      {day.recommendedSeason.icon} {day.recommendedSeason.name}
+                    </div>
+                    <h4 className="eco-calendar-challenge-title">{day.challenge.title}</h4>
+                    <div className="eco-calendar-insects-row">
+                      {day.beneficialInsects.slice(0, 3).map((insect) => (
+                        <span key={insect.id} className="eco-calendar-insect-mini" title={insect.name}>
+                          {insect.icon}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="eco-calendar-metrics-row">
+                      {day.keyMetrics.map((m) => (
+                        <span key={m} className="eco-calendar-metric-chip">
+                          {metricLabels[m]}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {selectedCalendarDay && (
+              <div className="eco-calendar-detail">
+                <div className="eco-calendar-detail-header" style={{ borderLeftColor: selectedCalendarDay.recommendedSeason.color }}>
+                  <div>
+                    <h3>
+                      {selectedCalendarDay.dayOfWeek} · {selectedCalendarDay.dateStr}
+                      {selectedCalendarDay.isToday && <span className="eco-calendar-today-badge-inline">今天</span>}
+                    </h3>
+                    <div className="eco-calendar-detail-season">
+                      <span style={{ color: selectedCalendarDay.recommendedSeason.color }}>
+                        {selectedCalendarDay.recommendedSeason.icon} 推荐季节：{selectedCalendarDay.recommendedSeason.name}
+                      </span>
+                      <span className="eco-calendar-detail-season-desc">
+                        {selectedCalendarDay.recommendedSeason.description}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="eco-calendar-detail-grid">
+                  <div className="eco-calendar-detail-section">
+                    <h4>🎯 挑战目标</h4>
+                    <div className="eco-calendar-challenge-type-tag">
+                      {selectedCalendarDay.challenge.type === "attract" ? "吸引昆虫" :
+                       selectedCalendarDay.challenge.type === "metric_limit" ? "环境目标" : "双重满足"}
+                    </div>
+                    <h5>{selectedCalendarDay.challenge.title}</h5>
+                    <p>{selectedCalendarDay.challenge.description}</p>
+                    <div className="eco-calendar-target-detail">
+                      {selectedCalendarDay.challenge.type === "attract" && (
+                        <p>目标：吸引 <b>{insects.find(i => i.id === selectedCalendarDay.challenge.target.insectId)?.name}</b> 入住</p>
+                      )}
+                      {selectedCalendarDay.challenge.type === "metric_limit" && (
+                        <p>目标：{metricLabels[selectedCalendarDay.challenge.target.metric as Metric]} ≥ <b>{selectedCalendarDay.challenge.target.value}</b>，材料不超过 <b>{selectedCalendarDay.challenge.target.maxCells}</b> 格</p>
+                      )}
+                      {selectedCalendarDay.challenge.type === "dual_insect" && (
+                        <p>目标：同时满足 <b>{(selectedCalendarDay.challenge.target.insectIds as string[]).map(id => insects.find(i => i.id === id)?.name).join("、")}</b> 的入住条件</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="eco-calendar-detail-section">
+                    <h4>🐛 预计受益昆虫</h4>
+                    <div className="eco-calendar-insects-list">
+                      {selectedCalendarDay.beneficialInsects.map((insect) => (
+                        <div key={insect.id} className="eco-calendar-insect-card">
+                          <span className="eco-calendar-insect-icon">{insect.icon}</span>
+                          <div>
+                            <strong>{insect.name}</strong>
+                            <div className="eco-calendar-insect-likes">
+                              {Object.entries(insect.likes).map(([metric, val]) => (
+                                <span key={metric} className="eco-calendar-insect-like">
+                                  {metricLabels[metric as Metric]} {val}
+                                </span>
+                              ))}
+                            </div>
+                            <p>{insect.note}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="eco-calendar-detail-section">
+                    <h4>📊 关键环境指标</h4>
+                    <div className="eco-calendar-key-metrics">
+                      {selectedCalendarDay.keyMetrics.map((m) => {
+                        const seasonBoost = selectedCalendarDay.recommendedSeason.affectedMetrics.includes(m)
+                          ? selectedCalendarDay.recommendedSeason.metricBoosts[m]
+                          : 0;
+                        return (
+                          <div key={m} className="eco-calendar-key-metric-item">
+                            <span className="eco-calendar-key-metric-label">{metricLabels[m]}</span>
+                            {seasonBoost && seasonBoost > 0 ? (
+                              <span className="eco-calendar-key-metric-boost" style={{ background: selectedCalendarDay.recommendedSeason.color }}>
+                                +{seasonBoost}/格（季节加成）
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="eco-calendar-detail-section">
+                    <h4>🧱 建议材料组合</h4>
+                    <div className="eco-calendar-suggested-materials">
+                      {selectedCalendarDay.suggestedMaterials.map((deco, idx) => (
+                        <div key={deco.id} className="eco-calendar-material-card">
+                          <span className="eco-calendar-material-rank">{idx + 1}</span>
+                          <span className="eco-calendar-material-icon" style={{ background: deco.color }}>{deco.icon}</span>
+                          <div>
+                            <strong>{deco.name}</strong>
+                            <div className="eco-calendar-material-metrics">
+                              {(Object.keys(deco.metrics) as Metric[]).filter(m => deco.metrics[m] > 0).map(m => (
+                                <span key={m} className="eco-calendar-material-metric-chip">
+                                  {metricLabels[m]} +{deco.metrics[m]}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="eco-calendar-material-hint">
+                      💡 以上材料按关键指标综合得分排序，建议组合搭配使用以达成挑战目标。
+                    </p>
+                  </div>
+                </div>
+
+                {selectedCalendarDay.isToday && (
+                  <div className="eco-calendar-today-action">
+                    <span className="eco-calendar-today-note">
+                      {challengeState.completed ? "✅ 今日挑战已完成" : "⏳ 今日挑战进行中，完成旅馆布局后点击「结算今天」"}
+                    </span>
+                    {!challengeState.completed && (
+                      <button
+                        className="eco-calendar-action-btn primary"
+                        onClick={() => { setShowEcoCalendar(false); setSelectedCalendarDay(null); }}
+                      >
+                        去布局旅馆
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!selectedCalendarDay && (
+              <div className="eco-calendar-empty-detail">
+                <p>👈 点击左侧任一天的卡片，查看该日挑战详情和材料建议</p>
+              </div>
+            )}
           </div>
         </div>
       )}

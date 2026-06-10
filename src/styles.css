@@ -2200,3 +2200,501 @@ meter {
     transform: scale(1.05);
   }
 }
+
+.eco-calendar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 32, 24, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.eco-calendar-modal {
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  border-radius: 14px;
+  max-width: 1100px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  animation: slideUp 0.3s ease-out;
+}
+
+.eco-calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.12);
+  position: sticky;
+  top: 0;
+  background: inherit;
+  z-index: 10;
+}
+
+.eco-calendar-header h2 {
+  margin-bottom: 6px;
+}
+
+.eco-calendar-hint {
+  color: #5e6558;
+  margin-bottom: 0;
+  font-size: 0.9rem;
+}
+
+.eco-calendar-close {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: #5e6558;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.eco-calendar-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.eco-calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.12);
+}
+
+.eco-calendar-day-card {
+  background: #fff8e9;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.eco-calendar-day-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.eco-calendar-day-card.selected {
+  box-shadow: 0 0 0 3px rgba(90, 160, 106, 0.2);
+}
+
+.eco-calendar-day-header {
+  background: #d7c9a6;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #1f2818;
+}
+
+.eco-calendar-day-card.today .eco-calendar-day-header {
+  color: #fff;
+}
+
+.eco-calendar-weekday {
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.eco-calendar-date {
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.eco-calendar-today-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.eco-calendar-day-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eco-calendar-season-tag {
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.eco-calendar-challenge-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  margin: 0;
+  color: #1f2818;
+  line-height: 1.3;
+  min-height: 2.2em;
+}
+
+.eco-calendar-insects-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.eco-calendar-insect-mini {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: #5aa06a;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.eco-calendar-metrics-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.eco-calendar-metric-chip {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(90, 160, 106, 0.15);
+  color: #47622e;
+  font-weight: 700;
+}
+
+.eco-calendar-detail {
+  padding: 20px 24px 24px;
+}
+
+.eco-calendar-detail-header {
+  padding: 14px 18px;
+  background: rgba(90, 160, 106, 0.08);
+  border-left: 4px solid #5aa06a;
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+
+.eco-calendar-detail-header h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eco-calendar-today-badge-inline {
+  font-size: 0.75rem;
+  background: #5aa06a;
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.eco-calendar-detail-season {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eco-calendar-detail-season span:first-child {
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.eco-calendar-detail-season-desc {
+  color: #5e6558;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.eco-calendar-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.eco-calendar-detail-section {
+  background: #fff8e9;
+  border-radius: 10px;
+  padding: 16px;
+  border: 1px solid rgba(30, 50, 20, 0.08);
+}
+
+.eco-calendar-detail-section h4 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.eco-calendar-challenge-type-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: rgba(90, 160, 106, 0.15);
+  color: #47622e;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.eco-calendar-detail-section h5 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  color: #1f2818;
+}
+
+.eco-calendar-target-detail {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(90, 160, 106, 0.08);
+  border-radius: 6px;
+}
+
+.eco-calendar-target-detail p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.eco-calendar-insects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eco-calendar-insect-card {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  background: #f1ead8;
+  border-radius: 8px;
+}
+
+.eco-calendar-insect-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #5aa06a;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+}
+
+.eco-calendar-insect-card strong {
+  font-size: 0.95rem;
+}
+
+.eco-calendar-insect-likes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+
+.eco-calendar-insect-like {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(90, 160, 106, 0.15);
+  color: #47622e;
+  font-weight: 700;
+}
+
+.eco-calendar-insect-card p {
+  margin: 0;
+  color: #5e6558;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.eco-calendar-key-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eco-calendar-key-metric-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f1ead8;
+  border-radius: 6px;
+}
+
+.eco-calendar-key-metric-label {
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #1f2818;
+}
+
+.eco-calendar-key-metric-boost {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.eco-calendar-suggested-materials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eco-calendar-material-card {
+  display: grid;
+  grid-template-columns: 24px 42px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  background: #f1ead8;
+  border-radius: 8px;
+}
+
+.eco-calendar-material-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #5aa06a;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.85rem;
+}
+
+.eco-calendar-material-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 1.2rem;
+}
+
+.eco-calendar-material-card strong {
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.eco-calendar-material-metrics {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.eco-calendar-material-metric-chip {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(90, 160, 106, 0.15);
+  color: #47622e;
+  font-weight: 700;
+}
+
+.eco-calendar-material-hint {
+  margin: 12px 0 0;
+  padding: 10px;
+  background: rgba(90, 160, 106, 0.08);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #47622e;
+}
+
+.eco-calendar-today-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  border: 2px solid #5aa06a;
+  border-radius: 10px;
+}
+
+.eco-calendar-today-note {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #2e5339;
+}
+
+.eco-calendar-action-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.eco-calendar-action-btn.primary {
+  background: #5aa06a;
+  color: #fff;
+}
+
+.eco-calendar-action-btn.primary:hover {
+  background: #4a8a58;
+}
+
+.eco-calendar-empty-detail {
+  padding: 60px 24px;
+  text-align: center;
+  color: #5e6558;
+}
+
+.eco-calendar-empty-detail p {
+  font-size: 1rem;
+  margin: 0;
+}
+
+@media (max-width: 980px) {
+  .eco-calendar-week {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .eco-calendar-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .eco-calendar-week {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .eco-calendar-today-action {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .eco-calendar-modal {
+    max-height: 92vh;
+  }
+}
