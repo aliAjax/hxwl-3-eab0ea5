@@ -555,6 +555,8 @@ export default function App() {
     const zeroMetrics = metricValues.filter((v) => v === 0).length;
     ecologyBalance = Math.max(0, ecologyBalance - zeroMetrics * 18);
 
+    const validGuestIds = new Set(state.guests.filter((id) => insects.some((insect) => insect.id === id)));
+    const currentlyAttractedIds = new Set<string>();
     let totalRequirementRatio = 0;
     insects.forEach((insect) => {
       const adjustedLikes = getAdjustedLikes(insect, currentSeason);
@@ -565,8 +567,13 @@ export default function App() {
         if (effectiveMetrics[metric as Metric] >= Number(value)) metCount++;
       });
       totalRequirementRatio += metCount / requirements.length;
+      if (metCount === requirements.length) {
+        currentlyAttractedIds.add(insect.id);
+      }
     });
-    const visitorAttraction = Math.round((totalRequirementRatio / insects.length) * 100);
+    const environmentReadiness = totalRequirementRatio / insects.length;
+    const guestOccupancy = validGuestIds.size / insects.length;
+    const visitorAttraction = Math.round((environmentReadiness * 0.75 + guestOccupancy * 0.25) * 100);
 
     const fillRate = state.placed.length / 12;
     const uniqueTypes = new Set(state.placed).size;
@@ -645,12 +652,9 @@ export default function App() {
       }
     });
 
-    const unattracted = insects.filter((insect) => {
-      const adjustedLikes = getAdjustedLikes(insect, currentSeason);
-      return !Object.entries(adjustedLikes).every(
-        ([metric, value]) => effectiveMetrics[metric as Metric] >= Number(value)
-      );
-    });
+    const unattracted = insects.filter(
+      (insect) => !validGuestIds.has(insect.id) && !currentlyAttractedIds.has(insect.id)
+    );
 
     if (unattracted.length > 0 && suggestions.length < 3) {
       const closest = unattracted
@@ -700,6 +704,34 @@ export default function App() {
             metricDeltas: deltas,
             relatedDecoration: bestDecoForGap?.id,
             relatedInsect: closest.insect.id
+          });
+        }
+      }
+    }
+
+    if (validGuestIds.size > 0 && suggestions.length < 3) {
+      const guestGaps = insects
+        .filter((insect) => validGuestIds.has(insect.id))
+        .flatMap((insect) =>
+          Object.entries(getAdjustedLikes(insect, currentSeason)).map(([metric, value]) => ({
+            insect,
+            metric: metric as Metric,
+            margin: effectiveMetrics[metric as Metric] - Number(value)
+          }))
+        )
+        .sort((a, b) => a.margin - b.margin);
+      const tightest = guestGaps[0];
+      if (tightest) {
+        const supportDeco = decorations
+          .filter((d) => d.metrics[tightest.metric] > 0)
+          .sort((a, b) => b.metrics[tightest.metric] - a.metrics[tightest.metric])[0];
+        if (supportDeco) {
+          suggestions.push({
+            text: `${tightest.insect.name}已入住，${metricLabels[tightest.metric]}余量${Math.max(0, tightest.margin)}，增加${supportDeco.name}可稳住访客`,
+            type: "add",
+            metricDeltas: [{ metric: tightest.metric, delta: supportDeco.metrics[tightest.metric] }],
+            relatedDecoration: supportDeco.id,
+            relatedInsect: tightest.insect.id
           });
         }
       }
