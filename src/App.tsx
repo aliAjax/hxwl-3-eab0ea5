@@ -1287,7 +1287,9 @@ export default function App() {
               return (
                 <button
                   key={index}
-                  ref={(el) => (cellRefs.current[index] = el)}
+                  ref={(el) => {
+                    cellRefs.current[index] = el;
+                  }}
                   draggable={!!placed}
                   onClick={() => removeMaterial(index)}
                   onDragStart={(e) => handleCellDragStart(e, index)}
