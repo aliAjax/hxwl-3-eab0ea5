@@ -223,8 +223,9 @@ function getTodayString(): string {
 }
 
 function getLocalDayOfYear(date: Date): number {
-  const start = new Date(date.getFullYear(), 0, 0);
-  const diff = date.getTime() - start.getTime();
+  const start = Date.UTC(date.getFullYear(), 0, 0);
+  const current = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const diff = current - start;
   return Math.floor(diff / 86400000);
 }
 
