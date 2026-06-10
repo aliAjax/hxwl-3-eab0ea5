@@ -215,14 +215,21 @@ function loadState(): HotelState {
 }
 
 function getTodayString(): string {
-  return new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getLocalDayOfYear(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const diff = date.getTime() - start.getTime();
+  return Math.floor(diff / 86400000);
 }
 
 function getTodayChallenge(): Challenge {
-  const today = getTodayString();
-  const dayOfYear = Math.floor(
-    (new Date(today).getTime() - new Date(new Date(today).getFullYear(), 0, 0).getTime()) / 86400000
-  );
+  const dayOfYear = getLocalDayOfYear(new Date());
   const index = dayOfYear % challengePool.length;
   return challengePool[index];
 }
