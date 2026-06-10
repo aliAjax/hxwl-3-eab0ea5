@@ -578,7 +578,7 @@ function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record
 type LayoutCandidate = {
   id: string;
   name: string;
-  strategy: "focus" | "balanced" | "challenge";
+  strategy: "focus" | "balanced" | "challenge" | "diversity";
   placed: string[];
   metrics: Record<Metric, number>;
   adjustedMetrics: Record<Metric, number>;
@@ -802,6 +802,57 @@ function generateBalancedLayout(season: Season | null, maxCells: number): string
   return placed.slice(0, 12);
 }
 
+function generateDiversityLayout(season: Season | null, maxCells: number): string[] {
+  const placed: string[] = [];
+  const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
+  let cellsUsed = 0;
+
+  const shuffledDecos = [...decorations].sort(() => Math.random() - 0.5);
+  const initialCount = Math.min(decorations.length, maxCells);
+  for (let i = 0; i < initialCount; i++) {
+    placed.push(shuffledDecos[i].id);
+    (Object.keys(shuffledDecos[i].metrics) as Metric[]).forEach((m) => {
+      currentMetrics[m] += shuffledDecos[i].metrics[m];
+    });
+    cellsUsed++;
+  }
+
+  while (cellsUsed < maxCells) {
+    const counts: Record<string, number> = {};
+    placed.forEach((id) => {
+      counts[id] = (counts[id] || 0) + 1;
+    });
+
+    let bestDeco = decorations[0];
+    let bestScore = -1;
+
+    decorations.forEach((deco) => {
+      const currentCount = counts[deco.id] || 0;
+      const diversityBonus = Math.max(0, 3 - currentCount) * 3;
+      const tempMetrics = { ...currentMetrics };
+      (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+        tempMetrics[m] += deco.metrics[m];
+      });
+      const values = (Object.keys(tempMetrics) as Metric[]).map((m) => tempMetrics[m]);
+      const total = values.reduce((a, b) => a + b, 0);
+      const score = diversityBonus + total * 0.3;
+      if (score > bestScore) {
+        bestScore = score;
+        bestDeco = deco;
+      }
+    });
+
+    placed.push(bestDeco.id);
+    (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+      currentMetrics[m] += bestDeco.metrics[m];
+    });
+    cellsUsed++;
+  }
+
+  while (placed.length < 12) placed.push("");
+  return placed.slice(0, 12);
+}
+
 function generateChallengeOrientedLayout(
   challenge: Challenge,
   season: Season | null,
@@ -932,6 +983,41 @@ function generateLayoutCandidates(
         challengeNote: challengeResult.message
       });
     }
+  } else {
+    const diversityPlaced = generateDiversityLayout(season, maxCells);
+    const diversityMetrics = calculateMetricsForPlaced(diversityPlaced.filter(Boolean));
+    const diversityAdjusted = calculateAdjustedMetrics(diversityPlaced.filter(Boolean), season);
+    const diversityAttracted = getAttractedInsectIds(diversityAdjusted, season);
+    const diversityScore = calculateLayoutScore(
+      diversityAdjusted,
+      diversityPlaced.filter(Boolean),
+      season,
+      null
+    );
+    const diversityChallengeResult = checkChallengeCompletion(
+      challenge,
+      diversityAdjusted,
+      diversityPlaced.filter(Boolean).length,
+      diversityAttracted
+    );
+
+    candidates.push({
+      id: "diversity-" + Date.now() + "-1",
+      name: "多样探索型",
+      strategy: "diversity",
+      placed: diversityPlaced,
+      metrics: diversityMetrics,
+      adjustedMetrics: diversityAdjusted,
+      attractedInsectIds: diversityAttracted,
+      score: diversityScore.total,
+      scoreDetail: {
+        ecology: diversityScore.ecology,
+        attraction: diversityScore.attraction,
+        space: diversityScore.space
+      },
+      canCompleteChallenge: diversityChallengeResult.success,
+      challengeNote: diversityChallengeResult.message
+    });
   }
 
   const balancedPlaced = generateBalancedLayout(season, maxCells);
@@ -2721,7 +2807,8 @@ export default function App() {
                             <h4>{candidate.name}</h4>
                             <span className="candidate-strategy-tag">
                               {candidate.strategy === "focus" ? "🎯 目标导向" :
-                               candidate.strategy === "balanced" ? "⚖️ 均衡发展" : "🏆 挑战优先"}
+                               candidate.strategy === "balanced" ? "⚖️ 均衡发展" :
+                               candidate.strategy === "diversity" ? "🌈 多样探索" : "🏆 挑战优先"}
                             </span>
                           </div>
                           <div className="candidate-score">
