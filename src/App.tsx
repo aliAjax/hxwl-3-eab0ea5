@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Metric = "shade" | "nectar" | "shelter" | "moisture";
 
@@ -67,6 +67,14 @@ type Snapshot = {
   metrics: Record<Metric, number>;
   lastReport: string;
   createdAt: string;
+};
+
+type SuggestionItem = {
+  text: string;
+  type: "add" | "replace" | "attract" | "praise";
+  metricDeltas: { metric: Metric; delta: number }[];
+  relatedDecoration?: string;
+  relatedInsect?: string;
 };
 
 const storageKey = "hxwl-3-hotel";
@@ -521,6 +529,218 @@ export default function App() {
     return boosted;
   }, [metrics, currentSeason, state.placed]);
 
+  const hotelRating = useMemo(() => {
+    if (state.placed.length === 0) {
+      return {
+        ecologyBalance: 0,
+        visitorAttraction: 0,
+        spaceUtilization: 0,
+        overallGrade: "—",
+        suggestions: [{ text: "放置一些材料，开始搭建你的昆虫旅馆吧！", type: "praise" as const, metricDeltas: [] }]
+      };
+    }
+
+    const effectiveMetrics = currentSeason ? adjustedMetrics : metrics;
+    const metricValues = (Object.keys(effectiveMetrics) as Metric[]).map((m) => effectiveMetrics[m]);
+
+    const totalMetricSum = metricValues.reduce((a, b) => a + b, 0);
+    const mean = totalMetricSum / 4;
+    let ecologyBalance = 0;
+    if (mean > 0) {
+      const variance = metricValues.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / 4;
+      const stddev = Math.sqrt(variance);
+      const cv = stddev / mean;
+      ecologyBalance = Math.round(Math.max(0, Math.min(100, (1 - cv) * 100)));
+    }
+    const zeroMetrics = metricValues.filter((v) => v === 0).length;
+    ecologyBalance = Math.max(0, ecologyBalance - zeroMetrics * 18);
+
+    let totalRequirementRatio = 0;
+    insects.forEach((insect) => {
+      const adjustedLikes = getAdjustedLikes(insect, currentSeason);
+      const requirements = Object.entries(adjustedLikes);
+      if (requirements.length === 0) return;
+      let metCount = 0;
+      requirements.forEach(([metric, value]) => {
+        if (effectiveMetrics[metric as Metric] >= Number(value)) metCount++;
+      });
+      totalRequirementRatio += metCount / requirements.length;
+    });
+    const visitorAttraction = Math.round((totalRequirementRatio / insects.length) * 100);
+
+    const fillRate = state.placed.length / 12;
+    const uniqueTypes = new Set(state.placed).size;
+    const diversity = uniqueTypes / decorations.length;
+    const counts: Record<string, number> = {};
+    state.placed.forEach((id) => {
+      counts[id] = (counts[id] || 0) + 1;
+    });
+    const maxCount = Math.max(...Object.values(counts));
+    const excessiveDupPenalty = maxCount > 4 ? 0.5 : maxCount > 3 ? 0.8 : 1;
+    const spaceUtilization = Math.round(
+      (fillRate * 0.4 + diversity * 0.35 + fillRate * excessiveDupPenalty * 0.25) * 100
+    );
+
+    const avgScore = (ecologyBalance + visitorAttraction + spaceUtilization) / 3;
+    let overallGrade = "D";
+    if (avgScore >= 90) overallGrade = "S";
+    else if (avgScore >= 75) overallGrade = "A";
+    else if (avgScore >= 60) overallGrade = "B";
+    else if (avgScore >= 40) overallGrade = "C";
+
+    const suggestions: SuggestionItem[] = [];
+
+    (Object.keys(effectiveMetrics) as Metric[]).forEach((metric) => {
+      if (effectiveMetrics[metric] === 0) {
+        const bestDeco = decorations
+          .filter((d) => d.metrics[metric] > 0)
+          .sort((a, b) => b.metrics[metric] - a.metrics[metric])[0];
+        if (bestDeco && suggestions.length < 3) {
+          const deltas: { metric: Metric; delta: number }[] = [];
+          (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+            if (bestDeco.metrics[m] > 0) {
+              deltas.push({ metric: m, delta: bestDeco.metrics[m] });
+            }
+          });
+          suggestions.push({
+            text: `缺少${metricLabels[metric]}，添加${bestDeco.name}可提升${deltas.map((d) => `${metricLabels[d.metric]}+${d.delta}`).join("、")}`,
+            type: "add",
+            metricDeltas: deltas,
+            relatedDecoration: bestDeco.id
+          });
+        }
+      }
+    });
+
+    Object.entries(counts).forEach(([id, count]) => {
+      if (count >= 4 && suggestions.length < 3) {
+        const deco = decorations.find((d) => d.id === id);
+        if (deco) {
+          const absentMetrics = (Object.keys(effectiveMetrics) as Metric[]).filter(
+            (m) => effectiveMetrics[m] === 0 && deco.metrics[m] === 0
+          );
+          const replacement = decorations.find((d) => {
+            if (d.id === id) return false;
+            return absentMetrics.some((m) => d.metrics[m] > 0);
+          });
+          let text = `${deco.name}重复过多（${count}个），考虑替换以提升多样性`;
+          const deltas: { metric: Metric; delta: number }[] = [];
+          if (replacement) {
+            (Object.keys(replacement.metrics) as Metric[]).forEach((m) => {
+              if (replacement.metrics[m] > 0 && effectiveMetrics[m] === 0) {
+                deltas.push({ metric: m, delta: replacement.metrics[m] });
+              }
+            });
+            if (deltas.length > 0) {
+              text = `${deco.name}重复过多（${count}个），替换为${replacement.name}可增加${deltas.map((d) => `${metricLabels[d.metric]}+${d.delta}`).join("、")}`;
+            }
+          }
+          suggestions.push({
+            text,
+            type: "replace",
+            metricDeltas: deltas,
+            relatedDecoration: replacement?.id
+          });
+        }
+      }
+    });
+
+    const unattracted = insects.filter((insect) => {
+      const adjustedLikes = getAdjustedLikes(insect, currentSeason);
+      return !Object.entries(adjustedLikes).every(
+        ([metric, value]) => effectiveMetrics[metric as Metric] >= Number(value)
+      );
+    });
+
+    if (unattracted.length > 0 && suggestions.length < 3) {
+      const closest = unattracted
+        .map((insect) => {
+          const adjustedLikes = getAdjustedLikes(insect, currentSeason);
+          let metCount = 0;
+          let totalCount = 0;
+          Object.entries(adjustedLikes).forEach(([metric, value]) => {
+            totalCount++;
+            if (effectiveMetrics[metric as Metric] >= Number(value)) metCount++;
+          });
+          return { insect, metCount, totalCount, ratio: metCount / totalCount };
+        })
+        .sort((a, b) => b.ratio - a.ratio)[0];
+
+      if (closest) {
+        const gaps: { metric: Metric; needed: number; current: number }[] = [];
+        Object.entries(getAdjustedLikes(closest.insect, currentSeason)).forEach(([metric, value]) => {
+          const gap = Number(value) - effectiveMetrics[metric as Metric];
+          if (gap > 0) {
+            gaps.push({ metric: metric as Metric, needed: Number(value), current: effectiveMetrics[metric as Metric] });
+          }
+        });
+        if (gaps.length > 0 && suggestions.length < 3) {
+          const bestDecoForGap = decorations
+            .filter((d) => gaps.some((g) => d.metrics[g.metric] > 0))
+            .sort((a, b) => {
+              const scoreA = gaps.reduce((s, g) => s + Math.min(a.metrics[g.metric], g.needed), 0);
+              const scoreB = gaps.reduce((s, g) => s + Math.min(b.metrics[g.metric], g.needed), 0);
+              return scoreB - scoreA;
+            })[0];
+          const deltas: { metric: Metric; delta: number }[] = [];
+          let text = `要吸引${closest.insect.name}，还需补足${gaps.map((g) => `${metricLabels[g.metric]}还差${g.needed - g.current}`).join("、")}`;
+          if (bestDecoForGap) {
+            gaps.forEach((g) => {
+              if (bestDecoForGap.metrics[g.metric] > 0) {
+                deltas.push({ metric: g.metric, delta: bestDecoForGap.metrics[g.metric] });
+              }
+            });
+            if (deltas.length > 0) {
+              text = `要吸引${closest.insect.name}，${gaps.map((g) => `${metricLabels[g.metric]}还差${g.needed - g.current}`).join("、")}，添加${bestDecoForGap.name}可补足${deltas.map((d) => `${metricLabels[d.metric]}+${d.delta}`).join("、")}`;
+            }
+          }
+          suggestions.push({
+            text,
+            type: "attract",
+            metricDeltas: deltas,
+            relatedDecoration: bestDecoForGap?.id,
+            relatedInsect: closest.insect.id
+          });
+        }
+      }
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push({
+        text: "布局非常出色，旅馆运行良好！",
+        type: "praise",
+        metricDeltas: []
+      });
+    }
+
+    return {
+      ecologyBalance: Math.min(100, ecologyBalance),
+      visitorAttraction: Math.min(100, visitorAttraction),
+      spaceUtilization: Math.min(100, spaceUtilization),
+      overallGrade,
+      suggestions
+    };
+  }, [adjustedMetrics, metrics, currentSeason, state.placed, state.guests]);
+
+  const prevRatingRef = useRef({ ecologyBalance: 0, visitorAttraction: 0, spaceUtilization: 0 });
+
+  const ratingDeltas = useMemo(() => {
+    const prev = prevRatingRef.current;
+    return {
+      ecologyBalance: hotelRating.ecologyBalance - prev.ecologyBalance,
+      visitorAttraction: hotelRating.visitorAttraction - prev.visitorAttraction,
+      spaceUtilization: hotelRating.spaceUtilization - prev.spaceUtilization
+    };
+  }, [hotelRating.ecologyBalance, hotelRating.visitorAttraction, hotelRating.spaceUtilization]);
+
+  useEffect(() => {
+    prevRatingRef.current = {
+      ecologyBalance: hotelRating.ecologyBalance,
+      visitorAttraction: hotelRating.visitorAttraction,
+      spaceUtilization: hotelRating.spaceUtilization
+    };
+  }, [hotelRating.ecologyBalance, hotelRating.visitorAttraction, hotelRating.spaceUtilization]);
+
   function getRelatedInsects(decoration: Decoration): { insect: Insect; matchCount: number }[] {
     return insects
       .map((insect) => {
@@ -843,6 +1063,99 @@ export default function App() {
             })}
           </div>
         </div>
+      </section>
+
+      <section className="rating-section">
+        <div className="rating-header">
+          <div>
+            <p className="eyebrow">旅馆评估</p>
+            <h2>评分与建议</h2>
+          </div>
+        </div>
+        <div className="rating-cards">
+          <div className="rating-card">
+            <div className="rating-score-wrapper">
+              <div className="rating-score ecology">{hotelRating.ecologyBalance}</div>
+              {ratingDeltas.ecologyBalance !== 0 && (
+                <span className={`rating-delta ${ratingDeltas.ecologyBalance > 0 ? "up" : "down"}`}>
+                  {ratingDeltas.ecologyBalance > 0 ? "↑" : "↓"}{Math.abs(ratingDeltas.ecologyBalance)}
+                </span>
+              )}
+            </div>
+            <div className="rating-label">生态平衡</div>
+            <div className="rating-bar-wrapper">
+              <div className="rating-bar ecology-bar" style={{ width: `${hotelRating.ecologyBalance}%` }} />
+            </div>
+          </div>
+          <div className="rating-card">
+            <div className="rating-score-wrapper">
+              <div className="rating-score attraction">{hotelRating.visitorAttraction}</div>
+              {ratingDeltas.visitorAttraction !== 0 && (
+                <span className={`rating-delta ${ratingDeltas.visitorAttraction > 0 ? "up" : "down"}`}>
+                  {ratingDeltas.visitorAttraction > 0 ? "↑" : "↓"}{Math.abs(ratingDeltas.visitorAttraction)}
+                </span>
+              )}
+            </div>
+            <div className="rating-label">访客吸引力</div>
+            <div className="rating-bar-wrapper">
+              <div className="rating-bar attraction-bar" style={{ width: `${hotelRating.visitorAttraction}%` }} />
+            </div>
+          </div>
+          <div className="rating-card">
+            <div className="rating-score-wrapper">
+              <div className="rating-score space">{hotelRating.spaceUtilization}</div>
+              {ratingDeltas.spaceUtilization !== 0 && (
+                <span className={`rating-delta ${ratingDeltas.spaceUtilization > 0 ? "up" : "down"}`}>
+                  {ratingDeltas.spaceUtilization > 0 ? "↑" : "↓"}{Math.abs(ratingDeltas.spaceUtilization)}
+                </span>
+              )}
+            </div>
+            <div className="rating-label">空间利用率</div>
+            <div className="rating-bar-wrapper">
+              <div className="rating-bar space-bar" style={{ width: `${hotelRating.spaceUtilization}%` }} />
+            </div>
+          </div>
+          <div className="rating-card grade-card">
+            <div className={`rating-grade ${hotelRating.overallGrade === "—" ? "" : hotelRating.overallGrade.toLowerCase()}`}>
+              {hotelRating.overallGrade}
+            </div>
+            <div className="rating-label">综合评级</div>
+          </div>
+        </div>
+        {hotelRating.suggestions.length > 0 && (
+          <div className="rating-suggestions">
+            <div className="suggestions-title">💡 改善建议</div>
+            <ul className="suggestions-list">
+              {hotelRating.suggestions.map((suggestion, index) => (
+                <li key={index} className={`suggestion-item suggestion-${suggestion.type}`}>
+                  <span className={`suggestion-icon ${suggestion.type}`}>
+                    {suggestion.type === "add" ? "➕" : suggestion.type === "replace" ? "🔄" : suggestion.type === "attract" ? "🦋" : "✨"}
+                  </span>
+                  <div className="suggestion-content">
+                    <span className="suggestion-text">{suggestion.text}</span>
+                    {suggestion.metricDeltas.length > 0 && (
+                      <div className="suggestion-deltas">
+                        {suggestion.metricDeltas.map((d, i) => (
+                          <span key={i} className={`suggestion-delta-chip delta-${d.metric}`}>
+                            {metricLabels[d.metric]}+{d.delta}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {suggestion.relatedDecoration && (
+                      <button
+                        className="suggestion-action-btn"
+                        onClick={() => addDecoration(suggestion.relatedDecoration!)}
+                      >
+                        添加{decorations.find((d) => d.id === suggestion.relatedDecoration)?.name}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {showEncyclopedia && (
