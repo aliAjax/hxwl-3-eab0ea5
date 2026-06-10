@@ -214,3 +214,249 @@ meter {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+.encyclopedia-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 32, 24, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.encyclopedia-modal {
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  border-radius: 14px;
+  max-width: 860px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.encyclopedia-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.12);
+  position: sticky;
+  top: 0;
+  background: inherit;
+  z-index: 1;
+}
+
+.encyclopedia-header h2 {
+  margin-bottom: 4px;
+  font-size: 1.8rem;
+}
+
+.encyclopedia-progress {
+  margin: 0;
+  color: #47622e;
+  font-weight: 600;
+}
+
+.encyclopedia-progress b {
+  color: #5aa06a;
+  font-size: 1.1rem;
+}
+
+.encyclopedia-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #d7c9a6;
+  color: #1f2818;
+  font-size: 1.1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+
+.encyclopedia-close:hover {
+  background: #c7b996;
+}
+
+.encyclopedia-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  padding: 20px 24px 24px;
+}
+
+.encyclopedia-card {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #fff8e9;
+  border: 1px solid rgba(30, 50, 20, 0.1);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.encyclopedia-card.checked-in {
+  background: #f1f8e9;
+  border-color: rgba(90, 160, 106, 0.3);
+}
+
+.encyclopedia-card.checked-in:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(90, 160, 106, 0.2);
+}
+
+.encyclopedia-card.locked {
+  opacity: 0.55;
+  background: #f1ead8;
+}
+
+.encyclopedia-icon {
+  position: relative;
+  width: 70px;
+  height: 70px;
+}
+
+.encyclopedia-icon > span {
+  width: 70px;
+  height: 70px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 900;
+  background: #5aa06a;
+}
+
+.encyclopedia-card.locked .encyclopedia-icon > span {
+  background: #8d8a82;
+}
+
+.encyclopedia-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #5aa06a;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.encyclopedia-lock {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 1.1rem;
+}
+
+.encyclopedia-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.encyclopedia-info strong {
+  font-size: 1.05rem;
+  color: #172018;
+}
+
+.encyclopedia-likes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.likes-label {
+  font-size: 0.8rem;
+  color: #5e6558;
+  font-weight: 600;
+}
+
+.like-tag {
+  background: #dff0d0;
+  color: #3e6328;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.likes-unknown {
+  color: #8d8a82;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.encyclopedia-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: #5e6558;
+  line-height: 1.5;
+}
+
+.encyclopedia-card.locked .encyclopedia-note {
+  color: #8d8a82;
+  font-style: italic;
+}
+
+@media (max-width: 560px) {
+  .encyclopedia-grid {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .encyclopedia-header {
+    padding: 18px 16px 14px;
+  }
+
+  .encyclopedia-header h2 {
+    font-size: 1.4rem;
+  }
+
+  .encyclopedia-card {
+    grid-template-columns: 60px 1fr;
+    padding: 14px;
+  }
+
+  .encyclopedia-icon {
+    width: 60px;
+    height: 60px;
+  }
+
+  .encyclopedia-icon > span {
+    width: 60px;
+    height: 60px;
+    font-size: 1.6rem;
+  }
+}

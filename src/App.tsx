@@ -59,6 +59,7 @@ function loadState(): HotelState {
 
 export default function App() {
   const [state, setState] = useState<HotelState>(loadState);
+  const [showEncyclopedia, setShowEncyclopedia] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(state));
@@ -105,6 +106,7 @@ export default function App() {
           <h1>给小客人搭一间好住处</h1>
         </div>
         <div className="actions">
+          <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
         </div>
@@ -163,6 +165,55 @@ export default function App() {
           </div>
         </div>
       </section>
+
+      {showEncyclopedia && (
+        <div className="encyclopedia-overlay" onClick={() => setShowEncyclopedia(false)}>
+          <div className="encyclopedia-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="encyclopedia-header">
+              <div>
+                <p className="eyebrow">昆虫图鉴</p>
+                <h2>认识你的小客人</h2>
+                <p className="encyclopedia-progress">
+                  已收集 <b>{state.guests.length}</b> / {insects.length}
+                </p>
+              </div>
+              <button className="encyclopedia-close" onClick={() => setShowEncyclopedia(false)}>✕</button>
+            </div>
+            <div className="encyclopedia-grid">
+              {insects.map((insect) => {
+                const isCheckedIn = state.guests.includes(insect.id);
+                return (
+                  <article key={insect.id} className={`encyclopedia-card ${isCheckedIn ? "checked-in" : "locked"}`}>
+                    <div className="encyclopedia-icon">
+                      <span>{isCheckedIn ? insect.icon : "?"}</span>
+                      {isCheckedIn && <div className="encyclopedia-badge">已入住</div>}
+                      {!isCheckedIn && <div className="encyclopedia-lock">🔒</div>}
+                    </div>
+                    <div className="encyclopedia-info">
+                      <strong>{isCheckedIn ? insect.name : "??? "}</strong>
+                      <div className="encyclopedia-likes">
+                        <span className="likes-label">偏好：</span>
+                        {isCheckedIn ? (
+                          Object.entries(insect.likes).map(([metric, value]) => (
+                            <span key={metric} className="like-tag">
+                              {metricLabels[metric as Metric]} ×{value}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="likes-unknown">未解锁</span>
+                        )}
+                      </div>
+                      <p className="encyclopedia-note">
+                        {isCheckedIn ? insect.note : "成功吸引它入住后解锁详细信息。"}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
