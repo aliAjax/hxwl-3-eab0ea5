@@ -595,13 +595,14 @@ function runEcosystemSimulation(
         }
       } else {
         departures.push(insectId);
+        const daysStayed = newResidenceDays[insectId] || 0;
         delete newResidenceDays[insectId];
         let leaveReason = "";
         if (weakestMetric !== null && adjustedMetrics[weakestMetric] < 2) {
           leaveReason = `${metricLabels[weakestMetric]}严重不足（${adjustedMetrics[weakestMetric]}）`;
         } else if (satisfaction < 0.4) {
           leaveReason = "整体环境满意度低";
-        } else if ((newResidenceDays[insectId] || 0) >= 7) {
+        } else if (daysStayed >= 7) {
           leaveReason = "已居住较久，寻找新环境";
         } else if (!seasonMatch && season.affectedInsects.length > 0) {
           leaveReason = `${season.name}不是活跃期`;
@@ -611,7 +612,7 @@ function runEcosystemSimulation(
         reasons.push({
           type: "departure",
           insectId,
-          text: `${insect.name}离开（${leaveReason}），停留${newResidenceDays[insectId] || 1}天`
+          text: `${insect.name}离开（${leaveReason}），停留${daysStayed}天`
         });
       }
     });
