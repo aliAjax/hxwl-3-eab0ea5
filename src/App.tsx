@@ -109,6 +109,75 @@ type CalendarDayChallenge = {
   suggestedMaterials: Decoration[];
 };
 
+type SimReasonItem = {
+  type: "arrival" | "departure" | "stay" | "challenge" | "season" | "penalty" | "boost";
+  insectId?: string;
+  metric?: Metric;
+  text: string;
+  value?: number;
+};
+
+type SimDayResult = {
+  dayIndex: number;
+  dateStr: string;
+  dayOfWeek: string;
+  seasonId: SeasonId;
+  seasonName: string;
+  seasonIcon: string;
+  seasonColor: string;
+  challenge: Challenge;
+  challengeSuccess: boolean;
+  challengeMessage: string;
+  baseMetrics: Record<Metric, number>;
+  adjustedMetrics: Record<Metric, number>;
+  metricPenalties: Partial<Record<Metric, number>>;
+  ecologyBalance: number;
+  visitorAttraction: number;
+  spaceUtilization: number;
+  overallGrade: string;
+  guestsAtStart: string[];
+  guestsAtEnd: string[];
+  arrivals: string[];
+  departures: string[];
+  stayed: string[];
+  insectResidenceDays: Record<string, number>;
+  reasons: SimReasonItem[];
+  summaryNote: string;
+};
+
+type SimConfig = {
+  sourceType: "current" | "snapshot";
+  snapshotId: string | null;
+  daysCount: number;
+  startDate: string;
+  seasonMode: "auto" | "fixed";
+  fixedSeasonId: SeasonId | null;
+};
+
+type SimulationResult = {
+  config: SimConfig;
+  sourceName: string;
+  sourcePlaced: string[];
+  sourceGuests: string[];
+  days: SimDayResult[];
+  summaryStats: {
+    totalArrivals: number;
+    totalDepartures: number;
+    peakGuests: number;
+    challengeWinRate: number;
+    avgEcology: number;
+    avgAttraction: number;
+    avgSpace: number;
+  };
+  finalState: {
+    placed: string[];
+    guests: string[];
+    metrics: Record<Metric, number>;
+  };
+};
+
+const SIM_DAYS_COUNT = 14;
+
 const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 const storageKey = "hxwl-3-hotel";
@@ -330,6 +399,443 @@ const seasons: Season[] = [
     affectedInsects: ["beetle"]
   }
 ];
+
+function computeInsectSatisfaction(
+  insect: Insect,
+  adjustedMetrics: Record<Metric, number>,
+  season: Season
+): number {
+  const adjustedLikes = getAdjustedLikes(insect, season);
+  const entries = Object.entries(adjustedLikes) as [Metric, number][];
+  if (entries.length === 0) return 1;
+  let satisfaction = 0;
+  entries.forEach(([metric, required]) => {
+    const actual = adjustedMetrics[metric];
+    const ratio = required > 0 ? actual / required : 1;
+    if (ratio >= 1.5) satisfaction += 1;
+    else if (ratio >= 1) satisfaction += 0.85 + (ratio - 1) * 0.3;
+    else if (ratio >= 0.7) satisfaction += 0.4 + (ratio - 0.7) * 1.5;
+    else if (ratio >= 0.4) satisfaction += 0.15 + (ratio - 0.4) * 0.8;
+    else satisfaction += ratio * 0.3;
+  });
+  return Math.max(0, Math.min(1, satisfaction / entries.length));
+}
+
+function computeWeakestPenalty(adjustedMetrics: Record<Metric, number>): {
+  penalties: Partial<Record<Metric, number>>;
+  totalPenalty: number;
+  weakestMetric: Metric | null;
+} {
+  const penalties: Partial<Record<Metric, number>> = {};
+  let totalPenalty = 0;
+  let weakestMetric: Metric | null = null;
+  let weakestValue = Infinity;
+  const allMetrics: Metric[] = ["shade", "nectar", "shelter", "moisture"];
+  allMetrics.forEach((m) => {
+    const v = adjustedMetrics[m];
+    if (v < 3) {
+      const penalty = (3 - v) * 0.12;
+      penalties[m] = penalty;
+      totalPenalty += penalty;
+    }
+    if (v < weakestValue) {
+      weakestValue = v;
+      weakestMetric = m;
+    }
+  });
+  return { penalties, totalPenalty, weakestMetric };
+}
+
+function calculateStayProbability(
+  insect: Insect,
+  residenceDays: number,
+  satisfaction: number,
+  totalPenalty: number,
+  seasonMatch: boolean
+): number {
+  let base = 0.58 + satisfaction * 0.35;
+  if (residenceDays >= 6) base -= 0.08;
+  else if (residenceDays >= 3) base += 0.04;
+  base -= totalPenalty * 0.6;
+  if (seasonMatch) base += 0.08;
+  return Math.max(0.05, Math.min(0.98, base));
+}
+
+function calculateArrivalProbability(
+  insect: Insect,
+  satisfaction: number,
+  totalPenalty: number,
+  seasonMatch: boolean,
+  alreadyGuests: string[]
+): number {
+  if (alreadyGuests.includes(insect.id)) return 0;
+  let base = satisfaction * 0.75;
+  if (seasonMatch) base += 0.12;
+  base -= totalPenalty * 0.4;
+  return Math.max(0, Math.min(0.95, base));
+}
+
+function addDaysToDate(dateStr: string, days: number): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function runEcosystemSimulation(
+  config: SimConfig,
+  initialPlaced: string[],
+  initialGuests: string[],
+  allSnapshots: Snapshot[]
+): SimulationResult {
+  const days: SimDayResult[] = [];
+  let currentGuests = [...initialGuests];
+  const residenceDays: Record<string, number> = {};
+  currentGuests.forEach((id) => (residenceDays[id] = 1));
+  const placed = [...initialPlaced];
+  const validPlaced = placed.filter(Boolean);
+  const baseMetrics = calculateMetricsForPlaced(validPlaced);
+
+  let totalArrivals = 0;
+  let totalDepartures = 0;
+  let peakGuests = initialGuests.length;
+  let ecologySum = 0;
+  let attractionSum = 0;
+  let spaceSum = 0;
+  let challengeWins = 0;
+
+  for (let dayIdx = 0; dayIdx < config.daysCount; dayIdx++) {
+    const date = addDaysToDate(config.startDate, dayIdx);
+    const dateStr = getDateString(date);
+    const challenge = getChallengeForDate(date);
+    const season =
+      config.seasonMode === "fixed" && config.fixedSeasonId
+        ? seasons.find((s) => s.id === config.fixedSeasonId)!
+        : getSeasonForDate(date);
+    const adjustedMetrics = calculateAdjustedMetrics(validPlaced, season);
+    const { penalties, totalPenalty, weakestMetric } = computeWeakestPenalty(adjustedMetrics);
+
+    const reasons: SimReasonItem[] = [];
+    const arrivals: string[] = [];
+    const departures: string[] = [];
+    const stayed: string[] = [];
+    const guestsAtStart = [...currentGuests];
+
+    const seasonEffectNote = season.affectedMetrics.length > 0;
+    if (seasonEffectNote && dayIdx === 0) {
+      reasons.push({
+        type: "season",
+        text: `${season.name}来临：${season.affectedMetrics.map((m) => `${metricLabels[m]}+${season.metricBoosts[m]}/格`).join("、")}；受益昆虫：${season.affectedInsects
+          .map((id) => insects.find((i) => i.id === id)?.name)
+          .filter(Boolean)
+          .join("、")}`
+      });
+    } else if (dayIdx > 0) {
+      const prevSeason =
+        config.seasonMode === "fixed" && config.fixedSeasonId
+          ? seasons.find((s) => s.id === config.fixedSeasonId)!
+          : getSeasonForDate(addDaysToDate(config.startDate, dayIdx - 1));
+      if (prevSeason.id !== season.id) {
+        reasons.push({
+          type: "season",
+          text: `季节变换：从${prevSeason.name}进入${season.name}`
+        });
+      }
+    }
+
+    if (weakestMetric !== null) {
+      const weakValue = adjustedMetrics[weakestMetric];
+      if (weakValue < 3) {
+        reasons.push({
+          type: "penalty",
+          metric: weakestMetric,
+          text: `环境短板：${metricLabels[weakestMetric]}仅${weakValue}，低于阈值3，入住率和停留率受影响`,
+          value: Math.round(totalPenalty * 100)
+        });
+      }
+    }
+
+    const seasonBoostMetric =
+      totalPenalty < 0.15 && season.affectedMetrics.some((m) => adjustedMetrics[m] >= 4)
+        ? season.affectedMetrics.find((m) => adjustedMetrics[m] >= 4)
+        : null;
+    if (seasonBoostMetric) {
+      reasons.push({
+        type: "boost",
+        metric: seasonBoostMetric,
+        text: `${season.name}加成生效：${metricLabels[seasonBoostMetric]}充足，访客吸引力提升`
+      });
+    }
+
+    const prevGuests = [...currentGuests];
+    const newResidenceDays: Record<string, number> = { ...residenceDays };
+
+    prevGuests.forEach((insectId) => {
+      const insect = insects.find((i) => i.id === insectId);
+      if (!insect) return;
+      const satisfaction = computeInsectSatisfaction(insect, adjustedMetrics, season);
+      const seasonMatch = season.affectedInsects.includes(insectId);
+      const stayProb = calculateStayProbability(
+        insect,
+        newResidenceDays[insectId] || 0,
+        satisfaction,
+        totalPenalty,
+        seasonMatch
+      );
+      const rnd = Math.random();
+      if (rnd <= stayProb) {
+        stayed.push(insectId);
+        newResidenceDays[insectId] = (newResidenceDays[insectId] || 0) + 1;
+        if (satisfaction < 0.5) {
+          reasons.push({
+            type: "stay",
+            insectId,
+            text: `${insect.name}勉强留下（满意度${Math.round(satisfaction * 100)}%），建议改善${metricLabels[weakestMetric || "shelter"]}`
+          });
+        }
+      } else {
+        departures.push(insectId);
+        delete newResidenceDays[insectId];
+        let leaveReason = "";
+        if (weakestMetric !== null && adjustedMetrics[weakestMetric] < 2) {
+          leaveReason = `${metricLabels[weakestMetric]}严重不足（${adjustedMetrics[weakestMetric]}）`;
+        } else if (satisfaction < 0.4) {
+          leaveReason = "整体环境满意度低";
+        } else if ((newResidenceDays[insectId] || 0) >= 7) {
+          leaveReason = "已居住较久，寻找新环境";
+        } else if (!seasonMatch && season.affectedInsects.length > 0) {
+          leaveReason = `${season.name}不是活跃期`;
+        } else {
+          leaveReason = "自然迁移";
+        }
+        reasons.push({
+          type: "departure",
+          insectId,
+          text: `${insect.name}离开（${leaveReason}），停留${newResidenceDays[insectId] || 1}天`
+        });
+      }
+    });
+
+    const notGuestInsects = insects.filter((i) => !stayed.includes(i.id) && !departures.includes(i.id));
+    notGuestInsects.forEach((insect) => {
+      const satisfaction = computeInsectSatisfaction(insect, adjustedMetrics, season);
+      const seasonMatch = season.affectedInsects.includes(insect.id);
+      const arrivalProb = calculateArrivalProbability(
+        insect,
+        satisfaction,
+        totalPenalty,
+        seasonMatch,
+        stayed
+      );
+      if (arrivalProb <= 0) return;
+      const rnd = Math.random();
+      if (rnd <= arrivalProb) {
+        arrivals.push(insect.id);
+        stayed.push(insect.id);
+        newResidenceDays[insect.id] = 1;
+        const likes = Object.entries(getAdjustedLikes(insect, season));
+        const strongestLike = likes.sort((a, b) => (b[1] as number) - (a[1] as number))[0];
+        let arriveReason = "环境适宜";
+        if (strongestLike) {
+          const [m, v] = strongestLike as [Metric, number];
+          if (adjustedMetrics[m] >= v) {
+            arriveReason = `${metricLabels[m]}达标（${adjustedMetrics[m]}≥${v}）`;
+          }
+        }
+        if (seasonMatch) arriveReason += `，${season.name}活跃期加成`;
+        reasons.push({
+          type: "arrival",
+          insectId: insect.id,
+          text: `${insect.name}入住！${arriveReason}`
+        });
+      }
+    });
+
+    currentGuests = [...stayed];
+    Object.keys(residenceDays).forEach((k) => delete residenceDays[k]);
+    Object.entries(newResidenceDays).forEach(([k, v]) => (residenceDays[k] = v));
+
+    const challengedInsectIds = [...stayed];
+    const challengeResult = checkChallengeCompletion(
+      challenge,
+      adjustedMetrics,
+      validPlaced.length,
+      challengedInsectIds
+    );
+
+    const challengeInvolvedIds: string[] = [];
+    if (challenge.type === "attract") {
+      challengeInvolvedIds.push(challenge.target.insectId as string);
+    } else if (challenge.type === "dual_insect") {
+      challengeInvolvedIds.push(...(challenge.target.insectIds as string[]));
+    }
+
+    if (challengeResult.success) {
+      challengeWins++;
+      reasons.push({
+        type: "challenge",
+        text: `挑战达成：${challenge.title} — ${challenge.feedback.success}`
+      });
+    } else {
+      let failReason = "";
+      if (challenge.type === "attract") {
+        const tgtId = challenge.target.insectId as string;
+        const tgtInsect = insects.find((i) => i.id === tgtId);
+        if (tgtInsect) {
+          const adjustedLikes = getAdjustedLikes(tgtInsect, season);
+          const gaps = Object.entries(adjustedLikes)
+            .filter(([m, v]) => adjustedMetrics[m as Metric] < (v as number))
+            .map(([m, v]) => `${metricLabels[m as Metric]}还差${(v as number) - adjustedMetrics[m as Metric]}`);
+          failReason = gaps.length > 0 ? gaps.join("、") : "概率因素未到访";
+        }
+      } else if (challenge.type === "metric_limit") {
+        const tgtMetric = challenge.target.metric as Metric;
+        const tgtValue = challenge.target.value as number;
+        const tgtCells = challenge.target.maxCells as number;
+        if (adjustedMetrics[tgtMetric] < tgtValue) {
+          failReason = `${metricLabels[tgtMetric]}仅${adjustedMetrics[tgtMetric]}，未达${tgtValue}`;
+        } else if (validPlaced.length > tgtCells) {
+          failReason = `使用了${validPlaced.length}格，超过限制${tgtCells}格`;
+        }
+      } else if (challenge.type === "dual_insect") {
+        const missing = (challenge.target.insectIds as string[]).filter((id) => !stayed.includes(id));
+        failReason = missing
+          .map((id) => {
+            const ins = insects.find((i) => i.id === id);
+            return ins ? `${ins.name}未入住` : id;
+          })
+          .join("、");
+      }
+      reasons.push({
+        type: "challenge",
+        text: `挑战未达成：${challenge.title} — 原因：${failReason || "条件不足"}`
+      });
+    }
+
+    const spaceScore = (() => {
+      const fillRate = validPlaced.length / 12;
+      const uniqueTypes = new Set(validPlaced).size;
+      const diversity = uniqueTypes / decorations.length;
+      const counts: Record<string, number> = {};
+      validPlaced.forEach((id) => (counts[id] = (counts[id] || 0) + 1));
+      const maxCount = Math.max(...Object.values(counts), 0);
+      const dupPenalty = maxCount > 4 ? 0.5 : maxCount > 3 ? 0.8 : 1;
+      return Math.round((fillRate * 0.4 + diversity * 0.35 + fillRate * dupPenalty * 0.25) * 100);
+    })();
+
+    const metricValues = (Object.keys(adjustedMetrics) as Metric[]).map((m) => adjustedMetrics[m]);
+    const totalMetricSum = metricValues.reduce((a, b) => a + b, 0);
+    const mean = totalMetricSum / 4;
+    let ecologyScore = 0;
+    if (mean > 0) {
+      const variance = metricValues.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / 4;
+      const stddev = Math.sqrt(variance);
+      const cv = stddev / mean;
+      ecologyScore = Math.max(0, Math.min(100, (1 - cv) * 100));
+    }
+    const zeroMetrics = metricValues.filter((v) => v === 0).length;
+    ecologyScore = Math.max(0, ecologyScore - zeroMetrics * 18);
+
+    let totalRatio = 0;
+    insects.forEach((insect) => {
+      const adjLikes = getAdjustedLikes(insect, season);
+      const reqs = Object.entries(adjLikes);
+      if (reqs.length === 0) return;
+      let met = 0;
+      reqs.forEach(([m, v]) => {
+        if (adjustedMetrics[m as Metric] >= (v as number)) met++;
+      });
+      totalRatio += met / reqs.length;
+    });
+    const envReadiness = totalRatio / insects.length;
+    const guestOcc = currentGuests.length / insects.length;
+    const attractionScore = Math.round((envReadiness * 0.75 + guestOcc * 0.25) * 100);
+
+    ecologySum += ecologyScore;
+    attractionSum += attractionScore;
+    spaceSum += spaceScore;
+    peakGuests = Math.max(peakGuests, currentGuests.length);
+
+    const avgScore = (ecologyScore + attractionScore + spaceScore) / 3;
+    let grade = "D";
+    if (avgScore >= 90) grade = "S";
+    else if (avgScore >= 75) grade = "A";
+    else if (avgScore >= 60) grade = "B";
+    else if (avgScore >= 40) grade = "C";
+
+    let summaryNote = "";
+    if (arrivals.length > 0 && departures.length > 0) {
+      summaryNote = `${arrivals.length}位新访客入住，${departures.length}位离开`;
+    } else if (arrivals.length > 0) {
+      summaryNote = `新增${arrivals.length}位访客：${arrivals.map((id) => insects.find((i) => i.id === id)?.name).filter(Boolean).join("、")}`;
+    } else if (departures.length > 0) {
+      summaryNote = `${departures.length}位访客离开：${departures.map((id) => insects.find((i) => i.id === id)?.name).filter(Boolean).join("、")}`;
+    } else if (stayed.length > 0) {
+      summaryNote = `所有${stayed.length}位访客安稳留宿`;
+    } else {
+      summaryNote = "尚无访客";
+    }
+    if (!challengeResult.success) summaryNote += "，挑战失败";
+
+    days.push({
+      dayIndex: dayIdx,
+      dateStr,
+      dayOfWeek: WEEKDAY_NAMES[date.getDay()],
+      seasonId: season.id,
+      seasonName: season.name,
+      seasonIcon: season.icon,
+      seasonColor: season.color,
+      challenge,
+      challengeSuccess: challengeResult.success,
+      challengeMessage: challengeResult.message,
+      baseMetrics: { ...baseMetrics },
+      adjustedMetrics: { ...adjustedMetrics },
+      metricPenalties: penalties,
+      ecologyBalance: Math.round(ecologyScore),
+      visitorAttraction: Math.min(100, attractionScore),
+      spaceUtilization: Math.min(100, spaceScore),
+      overallGrade: grade,
+      guestsAtStart,
+      guestsAtEnd: [...currentGuests],
+      arrivals,
+      departures,
+      stayed,
+      insectResidenceDays: { ...residenceDays },
+      reasons,
+      summaryNote
+    });
+
+    totalArrivals += arrivals.length;
+    totalDepartures += departures.length;
+  }
+
+  const sourceName =
+    config.sourceType === "current"
+      ? "当前旅馆布局"
+      : allSnapshots.find((s) => s.id === config.snapshotId)?.name || "快照";
+
+  return {
+    config,
+    sourceName,
+    sourcePlaced: initialPlaced,
+    sourceGuests: initialGuests,
+    days,
+    summaryStats: {
+      totalArrivals,
+      totalDepartures,
+      peakGuests,
+      challengeWinRate: Math.round((challengeWins / config.daysCount) * 100),
+      avgEcology: Math.round(ecologySum / config.daysCount),
+      avgAttraction: Math.round(attractionSum / config.daysCount),
+      avgSpace: Math.round(spaceSum / config.daysCount)
+    },
+    finalState: {
+      placed: [...placed],
+      guests: [...currentGuests],
+      metrics: baseMetrics
+    }
+  };
+}
 
 const decorations: Decoration[] = [
   { id: "twig", name: "空心树枝", icon: "╎", color: "#9c6b43", metrics: { shade: 1, nectar: 0, shelter: 3, moisture: 0 } },
@@ -1156,6 +1662,18 @@ export default function App() {
   const [logFilterInsect, setLogFilterInsect] = useState<string | null>(null);
   const [logFilterSeason, setLogFilterSeason] = useState<SeasonId | null>(null);
   const [logFilterChallengeSuccess, setLogFilterChallengeSuccess] = useState<"all" | "success" | "fail">("all");
+  const [showSimPanel, setShowSimPanel] = useState(false);
+  const [simConfig, setSimConfig] = useState<SimConfig>({
+    sourceType: "current",
+    snapshotId: null,
+    daysCount: SIM_DAYS_COUNT,
+    startDate: getTodayString(),
+    seasonMode: "auto",
+    fixedSeasonId: null
+  });
+  const [simResult, setSimResult] = useState<SimulationResult | null>(null);
+  const [simSelectedDayIndex, setSimSelectedDayIndex] = useState<number>(0);
+  const [isSimRunning, setIsSimRunning] = useState(false);
 
   const weekCalendar = useMemo(() => generateWeekCalendar(), []);
 
@@ -1938,6 +2456,53 @@ export default function App() {
     setShowLayoutLab(true);
   }
 
+  function openSimPanel() {
+    setSimConfig({
+      sourceType: "current",
+      snapshotId: null,
+      daysCount: SIM_DAYS_COUNT,
+      startDate: getTodayString(),
+      seasonMode: "auto",
+      fixedSeasonId: currentSeasonId
+    });
+    setSimResult(null);
+    setSimSelectedDayIndex(0);
+    setShowSimPanel(true);
+  }
+
+  function handleRunSimulation() {
+    setIsSimRunning(true);
+    setTimeout(() => {
+      let initialPlaced: string[] = [];
+      let initialGuests: string[] = [];
+      if (simConfig.sourceType === "current") {
+        initialPlaced = [...state.placed];
+        initialGuests = [...state.guests];
+      } else if (simConfig.snapshotId) {
+        const snap = snapshots.find((s) => s.id === simConfig.snapshotId);
+        if (snap) {
+          initialPlaced = [...snap.placed];
+          initialGuests = [...snap.guests];
+        }
+      }
+      const result = runEcosystemSimulation(simConfig, initialPlaced, initialGuests, snapshots);
+      setSimResult(result);
+      setSimSelectedDayIndex(0);
+      setIsSimRunning(false);
+    }, 50);
+  }
+
+  function applySimulationResult() {
+    if (!simResult) return;
+    setState((current) => ({
+      ...current,
+      placed: cleanPlacedArray([...simResult.finalState.placed]),
+      guests: [...simResult.finalState.guests],
+      lastReport: `已应用「${simResult.sourceName}」的${simResult.config.daysCount}日模拟结果，累计${simResult.summaryStats.totalArrivals}位新访客入住。`
+    }));
+    setShowSimPanel(false);
+  }
+
   return (
     <main className="hotel">
       <section className="topbar">
@@ -1958,6 +2523,7 @@ export default function App() {
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setShowLogPanel(true)}>📋 观察日志</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
+          <button onClick={openSimPanel} style={{ background: "#8b6b9c", color: "#fff" }}>🔮 多日模拟</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
         </div>
@@ -3021,6 +3587,411 @@ export default function App() {
                 <div className="empty-icon">🧪</div>
                 <p>配置好参数后，点击「生成候选方案」</p>
                 <p className="empty-hint">系统将从5种材料中智能组合出3套不同策略的布局方案</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showSimPanel && (
+        <div className="sim-overlay" onClick={() => { if (!isSimRunning) setShowSimPanel(false); }}>
+          <div className="sim-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="sim-header">
+              <div>
+                <p className="eyebrow">多日生态模拟</p>
+                <h2>🔮 未来{SIM_DAYS_COUNT}天访客预测</h2>
+                <p className="sim-hint">
+                  选择起始布局和季节模式，系统将模拟昆虫停留/离开、季节偏好变化和环境短板影响。模拟结果不会影响真实旅馆，需手动应用。
+                </p>
+              </div>
+              <button className="sim-close" onClick={() => { if (!isSimRunning) setShowSimPanel(false); }} disabled={isSimRunning}>✕</button>
+            </div>
+
+            <div className="sim-config">
+              <div className="sim-config-section">
+                <label className="sim-config-label">🏠 模拟起点</label>
+                <div className="sim-source-selector">
+                  <button
+                    className={`sim-source-option ${simConfig.sourceType === "current" ? "selected" : ""}`}
+                    onClick={() => setSimConfig((c) => ({ ...c, sourceType: "current", snapshotId: null }))}
+                  >
+                    <span className="sim-source-icon">🏡</span>
+                    <div className="sim-source-info">
+                      <strong>当前旅馆</strong>
+                      <span>{state.placed.length}格 · {state.guests.length}位访客</span>
+                    </div>
+                  </button>
+                  {snapshots.map((snap) => (
+                    <button
+                      key={snap.id}
+                      className={`sim-source-option ${simConfig.sourceType === "snapshot" && simConfig.snapshotId === snap.id ? "selected" : ""}`}
+                      onClick={() => setSimConfig((c) => ({ ...c, sourceType: "snapshot", snapshotId: snap.id }))}
+                    >
+                      <span className="sim-source-icon">📸</span>
+                      <div className="sim-source-info">
+                        <strong>{snap.name}</strong>
+                        <span>{snap.placed.length}格 · {snap.guests.length}位访客</span>
+                      </div>
+                    </button>
+                  ))}
+                  {snapshots.length === 0 && (
+                    <div className="sim-source-empty">
+                      <p>还没有保存快照，使用「旅馆快照」功能保存后可选。</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="sim-config-section">
+                <label className="sim-config-label">🌤️ 季节模式</label>
+                <div className="sim-season-mode">
+                  <button
+                    className={`sim-season-mode-btn ${simConfig.seasonMode === "auto" ? "selected" : ""}`}
+                    onClick={() => setSimConfig((c) => ({ ...c, seasonMode: "auto" }))}
+                  >
+                    📅 自动（按日期变化）
+                  </button>
+                  <button
+                    className={`sim-season-mode-btn ${simConfig.seasonMode === "fixed" ? "selected" : ""}`}
+                    onClick={() => setSimConfig((c) => ({ ...c, seasonMode: "fixed" }))}
+                  >
+                    🔒 固定季节
+                  </button>
+                </div>
+                {simConfig.seasonMode === "fixed" && (
+                  <div className="sim-fixed-season-picker">
+                    <button
+                      className={`sim-fixed-season ${simConfig.fixedSeasonId === null ? "selected" : ""}`}
+                      onClick={() => setSimConfig((c) => ({ ...c, fixedSeasonId: null }))}
+                    >
+                      🌍 默认
+                    </button>
+                    {seasons.map((season) => (
+                      <button
+                        key={season.id}
+                        className={`sim-fixed-season ${simConfig.fixedSeasonId === season.id ? "selected" : ""}`}
+                        style={simConfig.fixedSeasonId === season.id ? { borderColor: season.color, color: season.color } : {}}
+                        onClick={() => setSimConfig((c) => ({ ...c, fixedSeasonId: season.id }))}
+                      >
+                        {season.icon} {season.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="sim-config-section">
+                <label className="sim-config-label">
+                  🗓️ 起始日期：<b>{simConfig.startDate}</b>（共{SIM_DAYS_COUNT}天）
+                </label>
+                <input
+                  type="date"
+                  value={simConfig.startDate}
+                  onChange={(e) => setSimConfig((c) => ({ ...c, startDate: e.target.value }))}
+                  className="sim-date-input"
+                />
+              </div>
+
+              <button
+                className="sim-run-btn"
+                onClick={handleRunSimulation}
+                disabled={isSimRunning || (simConfig.sourceType === "snapshot" && !simConfig.snapshotId)}
+              >
+                {isSimRunning ? "⏳ 模拟中…" : `🔮 运行${SIM_DAYS_COUNT}天模拟`}
+              </button>
+            </div>
+
+            {isSimRunning && (
+              <div className="sim-running-indicator">
+                <div className="sim-spinner" />
+                <p>正在模拟生态演化…请稍候</p>
+              </div>
+            )}
+
+            {simResult && !isSimRunning && (
+              <>
+                <div className="sim-summary">
+                  <div className="sim-summary-header">
+                    <h3>📊 模拟汇总 · 基于「{simResult.sourceName}」</h3>
+                    <button className="sim-apply-btn" onClick={applySimulationResult}>
+                      ✅ 应用模拟第{SIM_DAYS_COUNT}天结果到真实旅馆
+                    </button>
+                  </div>
+                  <div className="sim-summary-cards">
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value arrivals">{simResult.summaryStats.totalArrivals}</div>
+                      <div className="sim-summary-label">累计新入住</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value departures">{simResult.summaryStats.totalDepartures}</div>
+                      <div className="sim-summary-label">累计离开</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value peak">{simResult.summaryStats.peakGuests}/{insects.length}</div>
+                      <div className="sim-summary-label">峰值入住率</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value winrate">{simResult.summaryStats.challengeWinRate}%</div>
+                      <div className="sim-summary-label">挑战达成率</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value ecology">{simResult.summaryStats.avgEcology}</div>
+                      <div className="sim-summary-label">平均生态</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value attraction">{simResult.summaryStats.avgAttraction}</div>
+                      <div className="sim-summary-label">平均吸引</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value space">{simResult.summaryStats.avgSpace}</div>
+                      <div className="sim-summary-label">平均空间</div>
+                    </div>
+                    <div className="sim-summary-card">
+                      <div className="sim-summary-value final">{simResult.finalState.guests.length}</div>
+                      <div className="sim-summary-label">第{SIM_DAYS_COUNT}天访客</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="sim-timeline-header">
+                  <h3>⏳ 时间线</h3>
+                  <p className="sim-timeline-hint">点击某日卡片查看当日详情</p>
+                </div>
+                <div className="sim-timeline-chart">
+                  <div className="sim-chart-y-axis">
+                    <span>{insects.length}</span>
+                    <span>{Math.ceil(insects.length * 0.75)}</span>
+                    <span>{Math.ceil(insects.length * 0.5)}</span>
+                    <span>{Math.ceil(insects.length * 0.25)}</span>
+                    <span>0</span>
+                  </div>
+                  <div className="sim-chart-grid">
+                    {[25, 50, 75].map((v) => (
+                      <div key={v} className="sim-chart-grid-line" style={{ bottom: `${(v / 100) * insects.length * 20}%` }} />
+                    ))}
+                    <div className="sim-chart-bars">
+                      {simResult.days.map((day) => (
+                        <div
+                          key={day.dayIndex}
+                          className={`sim-chart-column ${simSelectedDayIndex === day.dayIndex ? "selected" : ""}`}
+                          onClick={() => setSimSelectedDayIndex(day.dayIndex)}
+                          style={simSelectedDayIndex === day.dayIndex ? { borderColor: day.seasonColor } : {}}
+                        >
+                          <div className="sim-chart-bars-group">
+                            {(() => {
+                              const maxH = insects.length;
+                              const stayedH = Math.max(2, (day.stayed.length / maxH) * 100);
+                              const arrivalsH = day.arrivals.length > 0 ? (day.arrivals.length / maxH) * 100 : 0;
+                              return (
+                                <>
+                                  <div
+                                    className="sim-chart-bar stayed"
+                                    style={{ height: `${stayedH}%` }}
+                                    title={`留宿: ${day.stayed.length}`}
+                                  />
+                                  {arrivalsH > 0 && (
+                                    <div
+                                      className="sim-chart-bar arrivals"
+                                      style={{ height: `${arrivalsH}%` }}
+                                      title={`新入住: ${day.arrivals.length}`}
+                                    />
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <div className={`sim-challenge-dot ${day.challengeSuccess ? "success" : "fail"}`}
+                            title={day.challengeSuccess ? "挑战成功" : "挑战失败"}
+                          />
+                          <span className="sim-chart-label">
+                            <span className="sim-chart-date">{day.dateStr.slice(5)}</span>
+                            <span className="sim-chart-day">{day.dayOfWeek}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="sim-chart-legend">
+                  <span className="sim-legend-item"><i className="sim-legend-dot stayed" />留宿访客</span>
+                  <span className="sim-legend-item"><i className="sim-legend-dot arrivals" />新入住</span>
+                  <span className="sim-legend-item"><i className="sim-legend-dot success" />挑战成功</span>
+                  <span className="sim-legend-item"><i className="sim-legend-dot fail" />挑战失败</span>
+                </div>
+
+                {(() => {
+                  const day = simResult.days[simSelectedDayIndex];
+                  if (!day) return null;
+                  return (
+                    <div className="sim-day-detail" style={{ borderTopColor: day.seasonColor }}>
+                      <div className="sim-day-header">
+                        <div className="sim-day-title-row">
+                          <h3 style={{ color: day.seasonColor }}>
+                            第{day.dayIndex + 1}天 · {day.dateStr} · {day.dayOfWeek}
+                          </h3>
+                          <div className="sim-day-badges">
+                            <span className="sim-badge-season" style={{ background: day.seasonColor }}>
+                              {day.seasonIcon} {day.seasonName}
+                            </span>
+                            <span className={`sim-badge-challenge ${day.challengeSuccess ? "success" : "fail"}`}>
+                              {day.challengeSuccess ? "✅ 挑战达成" : "❌ 挑战失败"}
+                            </span>
+                            <span className={`sim-grade grade-${day.overallGrade.toLowerCase()}`}>
+                              {day.overallGrade}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="sim-day-summary">{day.summaryNote}</p>
+                      </div>
+
+                      <div className="sim-day-grid">
+                        <div className="sim-day-section">
+                          <h4>🎯 挑战详情</h4>
+                          <div className="sim-challenge-card">
+                            <div className="sim-challenge-type">
+                              {day.challenge.type === "attract" ? "吸引昆虫" :
+                               day.challenge.type === "metric_limit" ? "环境目标" : "双重满足"}
+                            </div>
+                            <h5>{day.challenge.title}</h5>
+                            <p>{day.challenge.description}</p>
+                            <p className="sim-challenge-feedback">{day.challengeMessage}</p>
+                          </div>
+                        </div>
+
+                        <div className="sim-day-section">
+                          <h4>📊 环境指标{day.seasonName !== "默认模式" && `（${day.seasonName}调整）`}</h4>
+                          <div className="sim-day-metrics">
+                            {(Object.keys(day.adjustedMetrics) as Metric[]).map((metric) => {
+                              const base = day.baseMetrics[metric];
+                              const adjusted = day.adjustedMetrics[metric];
+                              const penalty = day.metricPenalties[metric] || 0;
+                              return (
+                                <div key={metric} className="sim-day-metric-row">
+                                  <span className="sim-metric-name">{metricLabels[metric]}</span>
+                                  <div className="sim-metric-bar-track">
+                                    <div
+                                      className="sim-metric-bar-fill"
+                                      style={{ width: `${Math.min(100, (adjusted / 12) * 100)}%` }}
+                                    />
+                                  </div>
+                                  <b className="sim-metric-value">
+                                    {base !== adjusted ? (
+                                      <><s>{base}</s>→{adjusted}</>
+                                    ) : (
+                                      adjusted
+                                    )}
+                                  </b>
+                                  {penalty > 0 && (
+                                    <span className="sim-metric-penalty" title={`短板惩罚 ${Math.round(penalty * 100)}%`}>
+                                      ⚠️
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="sim-day-section">
+                          <h4>🐛 入住名单</h4>
+                          <div className="sim-guest-breakdown">
+                            {day.stayed.length === 0 ? (
+                              <p className="sim-no-guests">本日无访客留宿</p>
+                            ) : (
+                              <div className="sim-guest-grid">
+                                {insects.map((insect) => {
+                                  const isStayed = day.stayed.includes(insect.id);
+                                  const isArrival = day.arrivals.includes(insect.id);
+                                  const isDeparture = day.departures.includes(insect.id);
+                                  const resDays = day.insectResidenceDays[insect.id] || 0;
+                                  return (
+                                    <div
+                                      key={insect.id}
+                                      className={`sim-guest-card ${isStayed ? "stayed" : "absent"} ${isArrival ? "arrival" : ""} ${isDeparture ? "departure" : ""}`}
+                                    >
+                                      <span className="sim-guest-icon">{insect.icon}</span>
+                                      <div className="sim-guest-info">
+                                        <strong>{insect.name}</strong>
+                                        <div className="sim-guest-status">
+                                          {isArrival && <span className="sim-status arrival">新入住</span>}
+                                          {isDeparture && <span className="sim-status departure">已离开</span>}
+                                          {isStayed && !isArrival && <span className="sim-status stayed">留宿{resDays}天</span>}
+                                          {!isStayed && !isDeparture && <span className="sim-status absent">未到访</span>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="sim-day-section">
+                          <h4>⭐ 当日评分</h4>
+                          <div className="sim-day-ratings">
+                            <div className="sim-rating-item">
+                              <div className="sim-rating-score ecology">{day.ecologyBalance}</div>
+                              <div className="sim-rating-label">生态平衡</div>
+                            </div>
+                            <div className="sim-rating-item">
+                              <div className="sim-rating-score attraction">{day.visitorAttraction}</div>
+                              <div className="sim-rating-label">访客吸引</div>
+                            </div>
+                            <div className="sim-rating-item">
+                              <div className="sim-rating-score space">{day.spaceUtilization}</div>
+                              <div className="sim-rating-label">空间利用</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="sim-day-section sim-reason-section">
+                          <h4>🔍 关键事件与原因</h4>
+                          <div className="sim-reasons-list">
+                            {day.reasons.length === 0 ? (
+                              <p className="sim-no-reasons">当日无特殊事件</p>
+                            ) : (
+                              day.reasons.map((reason, idx) => (
+                                <div key={idx} className={`sim-reason-item reason-${reason.type}`}>
+                                  <span className={`sim-reason-icon reason-${reason.type}`}>
+                                    {reason.type === "arrival" ? "🦋" :
+                                     reason.type === "departure" ? "🚪" :
+                                     reason.type === "stay" ? "🏠" :
+                                     reason.type === "challenge" ? (day.challengeSuccess ? "🏆" : "💪") :
+                                     reason.type === "season" ? "🌤️" :
+                                     reason.type === "penalty" ? "⚠️" : "✨"}
+                                  </span>
+                                  <div className="sim-reason-content">
+                                    <span className="sim-reason-type-tag">
+                                      {reason.type === "arrival" ? "入住" :
+                                       reason.type === "departure" ? "离开" :
+                                       reason.type === "stay" ? "停留" :
+                                       reason.type === "challenge" ? "挑战" :
+                                       reason.type === "season" ? "季节" :
+                                       reason.type === "penalty" ? "短板" : "加成"}
+                                    </span>
+                                    <p>{reason.text}</p>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+
+            {!simResult && !isSimRunning && (
+              <div className="sim-empty">
+                <div className="sim-empty-icon">🔮</div>
+                <p>配置好参数后，点击「运行{SIM_DAYS_COUNT}天模拟」</p>
+                <p className="sim-empty-hint">
+                  模拟算法会综合计算：昆虫满意度、停留/离开概率、新访客入住概率、<br/>
+                  季节偏好调整、环境短板惩罚、以及每日挑战达成情况。
+                </p>
               </div>
             )}
           </div>
