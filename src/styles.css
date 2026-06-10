@@ -898,3 +898,281 @@ meter {
     max-width: 400px;
   }
 }
+
+.snapshot-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 32, 24, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.snapshot-modal {
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  border-radius: 14px;
+  max-width: 620px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  animation: slideUp 0.3s ease-out;
+}
+
+.snapshot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.12);
+  position: sticky;
+  top: 0;
+  background: inherit;
+  z-index: 1;
+}
+
+.snapshot-header h2 {
+  margin-bottom: 4px;
+  font-size: 1.8rem;
+}
+
+.snapshot-progress {
+  margin: 0;
+  color: #47622e;
+  font-weight: 600;
+}
+
+.snapshot-progress b {
+  color: #5aa06a;
+  font-size: 1.1rem;
+}
+
+.snapshot-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #d7c9a6;
+  color: #1f2818;
+  font-size: 1.1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+
+.snapshot-close:hover {
+  background: #c7b996;
+}
+
+.snapshot-save {
+  display: flex;
+  gap: 10px;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.08);
+}
+
+.snapshot-save input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid rgba(30, 50, 20, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  color: #172018;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.snapshot-save input:focus {
+  border-color: #5aa06a;
+}
+
+.snapshot-save-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: #5aa06a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.snapshot-save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.snapshot-save-btn:not(:disabled):hover {
+  background: #4a8a5a;
+}
+
+.snapshot-empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: #5e6558;
+}
+
+.snapshot-empty p {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.snapshot-list {
+  padding: 16px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.snapshot-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: start;
+  padding: 16px;
+  border-radius: 10px;
+  background: #fff8e9;
+  border: 1px solid rgba(30, 50, 20, 0.1);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.snapshot-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(90, 160, 106, 0.12);
+}
+
+.snapshot-card-name {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.snapshot-card-name strong {
+  font-size: 1.05rem;
+  color: #172018;
+}
+
+.snapshot-card-time {
+  font-size: 0.78rem;
+  color: #8d8a82;
+  font-weight: 500;
+}
+
+.snapshot-card-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.snapshot-tag {
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.snapshot-tag.layout-tag {
+  background: #dff0d0;
+  color: #3e6328;
+}
+
+.snapshot-tag.guest-tag {
+  background: #e1f1d4;
+  color: #2e7d32;
+}
+
+.snapshot-metrics-mini {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.snapshot-metric-chip {
+  background: rgba(90, 160, 106, 0.12);
+  color: #47622e;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.snapshot-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.snapshot-restore-btn,
+.snapshot-delete-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.snapshot-restore-btn {
+  background: #5aa06a;
+  color: #fff;
+}
+
+.snapshot-restore-btn:hover {
+  background: #4a8a5a;
+}
+
+.snapshot-delete-btn {
+  background: #e0d5c0;
+  color: #795548;
+}
+
+.snapshot-delete-btn:hover {
+  background: #d4c7ab;
+}
+
+@media (max-width: 560px) {
+  .snapshot-modal {
+    max-height: 90vh;
+  }
+
+  .snapshot-header {
+    padding: 18px 16px 14px;
+  }
+
+  .snapshot-header h2 {
+    font-size: 1.4rem;
+  }
+
+  .snapshot-save {
+    padding: 14px 16px;
+    flex-direction: column;
+  }
+
+  .snapshot-list {
+    padding: 12px 16px 20px;
+  }
+
+  .snapshot-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .snapshot-card-actions {
+    flex-direction: row;
+  }
+}

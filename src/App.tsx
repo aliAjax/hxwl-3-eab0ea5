@@ -45,8 +45,20 @@ type HotelState = {
   lastReport: string;
 };
 
+type Snapshot = {
+  id: string;
+  name: string;
+  placed: string[];
+  guests: string[];
+  metrics: Record<Metric, number>;
+  lastReport: string;
+  createdAt: string;
+};
+
 const storageKey = "hxwl-3-hotel";
 const challengeStorageKey = "hxwl-3-challenge";
+const snapshotStorageKey = "hxwl-3-snapshots";
+const MAX_SNAPSHOTS = 5;
 
 const challengePool: Challenge[] = [
   {
@@ -214,6 +226,18 @@ function loadState(): HotelState {
   }
 }
 
+function loadSnapshots(): Snapshot[] {
+  try {
+    return JSON.parse(localStorage.getItem(snapshotStorageKey) || "[]") as Snapshot[];
+  } catch {
+    return [];
+  }
+}
+
+function saveSnapshots(snapshots: Snapshot[]): void {
+  localStorage.setItem(snapshotStorageKey, JSON.stringify(snapshots));
+}
+
 function getTodayString(): string {
   const now = new Date();
   const y = now.getFullYear();
@@ -300,6 +324,9 @@ export default function App() {
   const [challengeResult, setChallengeResult] = useState<{ success: boolean; message: string } | null>(null);
   const [selectedDecoration, setSelectedDecoration] = useState<Decoration | null>(null);
   const [showMaterialDrawer, setShowMaterialDrawer] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
+  const [snapshotName, setSnapshotName] = useState("");
+  const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
 
   const todayChallenge = useMemo(
     () => challengePool.find((c) => c.id === challengeState.currentChallengeId) || challengePool[0],
@@ -313,6 +340,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(challengeStorageKey, JSON.stringify(challengeState));
   }, [challengeState]);
+
+  useEffect(() => {
+    saveSnapshots(snapshots);
+  }, [snapshots]);
 
   useEffect(() => {
     const checkDate = () => {
@@ -402,6 +433,56 @@ export default function App() {
     }
   }
 
+  function createSnapshot() {
+    const trimmed = snapshotName.trim();
+    if (!trimmed) return;
+    if (snapshots.length >= MAX_SNAPSHOTS) {
+      setSnapshots((prev) => {
+        const rest = prev.slice(1);
+        return [
+          ...rest,
+          {
+            id: Date.now().toString(36),
+            name: trimmed,
+            placed: [...state.placed],
+            guests: [...state.guests],
+            metrics: { ...metrics },
+            lastReport: state.lastReport,
+            createdAt: new Date().toLocaleString("zh-CN")
+          }
+        ];
+      });
+    } else {
+      setSnapshots((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(36),
+          name: trimmed,
+          placed: [...state.placed],
+          guests: [...state.guests],
+          metrics: { ...metrics },
+          lastReport: state.lastReport,
+          createdAt: new Date().toLocaleString("zh-CN")
+        }
+      ]);
+    }
+    setSnapshotName("");
+  }
+
+  function restoreSnapshot(snapshot: Snapshot) {
+    setState((current) => ({
+      ...current,
+      placed: [...snapshot.placed],
+      guests: [...snapshot.guests],
+      lastReport: snapshot.lastReport
+    }));
+    setShowSnapshotPanel(false);
+  }
+
+  function deleteSnapshot(id: string) {
+    setSnapshots((prev) => prev.filter((s) => s.id !== id));
+  }
+
   return (
     <main className="hotel">
       <section className="topbar">
@@ -411,6 +492,7 @@ export default function App() {
         </div>
         <div className="actions">
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
+          <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
         </div>
@@ -634,6 +716,97 @@ export default function App() {
                 我知道了
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showSnapshotPanel && (
+        <div className="snapshot-overlay" onClick={() => setShowSnapshotPanel(false)}>
+          <div className="snapshot-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="snapshot-header">
+              <div>
+                <p className="eyebrow">旅馆快照</p>
+                <h2>保存与恢复布局</h2>
+                <p className="snapshot-progress">
+                  已保存 <b>{snapshots.length}</b> / {MAX_SNAPSHOTS}
+                </p>
+              </div>
+              <button className="snapshot-close" onClick={() => setShowSnapshotPanel(false)}>✕</button>
+            </div>
+
+            <div className="snapshot-save">
+              <input
+                type="text"
+                placeholder="输入快照名称…"
+                value={snapshotName}
+                onChange={(e) => setSnapshotName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") createSnapshot(); }}
+                maxLength={20}
+              />
+              <button
+                className="snapshot-save-btn"
+                onClick={createSnapshot}
+                disabled={!snapshotName.trim()}
+              >
+                保存快照
+              </button>
+            </div>
+
+            {snapshots.length === 0 ? (
+              <div className="snapshot-empty">
+                <p>还没有保存过快照。</p>
+                <p>给当前旅馆布局取个名字，方便以后恢复。</p>
+              </div>
+            ) : (
+              <div className="snapshot-list">
+                {snapshots.map((snapshot) => {
+                  const guestNames = snapshot.guests
+                    .map((gid) => insects.find((i) => i.id === gid)?.name)
+                    .filter(Boolean) as string[];
+                  return (
+                    <article key={snapshot.id} className="snapshot-card">
+                      <div className="snapshot-card-info">
+                        <div className="snapshot-card-name">
+                          <strong>{snapshot.name}</strong>
+                          <span className="snapshot-card-time">{snapshot.createdAt}</span>
+                        </div>
+                        <div className="snapshot-card-detail">
+                          <span className="snapshot-tag layout-tag">
+                            布局 {snapshot.placed.length}格
+                          </span>
+                          {guestNames.length > 0 && (
+                            <span className="snapshot-tag guest-tag">
+                              访客 {guestNames.join("、")}
+                            </span>
+                          )}
+                          <div className="snapshot-metrics-mini">
+                            {(Object.keys(snapshot.metrics) as Metric[]).map((m) => (
+                              <span key={m} className="snapshot-metric-chip">
+                                {metricLabels[m]} {snapshot.metrics[m]}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="snapshot-card-actions">
+                        <button
+                          className="snapshot-restore-btn"
+                          onClick={() => restoreSnapshot(snapshot)}
+                        >
+                          恢复
+                        </button>
+                        <button
+                          className="snapshot-delete-btn"
+                          onClick={() => deleteSnapshot(snapshot.id)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
