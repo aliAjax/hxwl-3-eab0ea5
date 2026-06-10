@@ -575,6 +575,439 @@ function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record
   return result;
 }
 
+type LayoutCandidate = {
+  id: string;
+  name: string;
+  strategy: "focus" | "balanced" | "challenge";
+  placed: string[];
+  metrics: Record<Metric, number>;
+  adjustedMetrics: Record<Metric, number>;
+  attractedInsectIds: string[];
+  score: number;
+  scoreDetail: {
+    ecology: number;
+    attraction: number;
+    space: number;
+  };
+  canCompleteChallenge: boolean;
+  challengeNote: string;
+};
+
+type LayoutLabConfig = {
+  targetInsectId: string | null;
+  seasonId: SeasonId | null;
+  maxCells: number;
+};
+
+function calculateMetricsForPlaced(placed: string[]): Record<Metric, number> {
+  return placed.reduce(
+    (total, id) => {
+      const decoration = decorations.find((item) => item.id === id);
+      if (!decoration) return total;
+      (Object.keys(total) as Metric[]).forEach((metric) => {
+        total[metric] += decoration.metrics[metric];
+      });
+      return total;
+    },
+    { shade: 0, nectar: 0, shelter: 0, moisture: 0 }
+  );
+}
+
+function calculateAdjustedMetrics(placed: string[], season: Season | null): Record<Metric, number> {
+  if (!season || placed.length === 0) return calculateMetricsForPlaced(placed);
+  const seasonBoosts = season.metricBoosts;
+  return placed.reduce(
+    (total, id) => {
+      const decoration = decorations.find((item) => item.id === id);
+      if (!decoration) return total;
+      (Object.keys(total) as Metric[]).forEach((metric) => {
+        let value = decoration.metrics[metric];
+        if (value > 0 && seasonBoosts[metric] !== undefined) {
+          value += seasonBoosts[metric]!;
+        }
+        total[metric] += value;
+      });
+      return total;
+    },
+    { shade: 0, nectar: 0, shelter: 0, moisture: 0 }
+  );
+}
+
+function getAttractedInsectIds(metrics: Record<Metric, number>, season: Season | null): string[] {
+  return insects
+    .filter((insect) => {
+      const adjustedLikes = getAdjustedLikes(insect, season);
+      return Object.entries(adjustedLikes).every(
+        ([metric, value]) => metrics[metric as Metric] >= Number(value)
+      );
+    })
+    .map((insect) => insect.id);
+}
+
+function calculateLayoutScore(
+  metrics: Record<Metric, number>,
+  placed: string[],
+  season: Season | null,
+  targetInsectId: string | null
+): { total: number; ecology: number; attraction: number; space: number } {
+  const metricValues = (Object.keys(metrics) as Metric[]).map((m) => metrics[m]);
+  const totalMetricSum = metricValues.reduce((a, b) => a + b, 0);
+  const mean = totalMetricSum / 4;
+  let ecologyBalance = 0;
+  if (mean > 0) {
+    const variance = metricValues.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / 4;
+    const stddev = Math.sqrt(variance);
+    const cv = stddev / mean;
+    ecologyBalance = Math.max(0, Math.min(100, (1 - cv) * 100));
+  }
+  const zeroMetrics = metricValues.filter((v) => v === 0).length;
+  ecologyBalance = Math.max(0, ecologyBalance - zeroMetrics * 18);
+
+  const attractedIds = getAttractedInsectIds(metrics, season);
+  let totalRequirementRatio = 0;
+  insects.forEach((insect) => {
+    const adjustedLikes = getAdjustedLikes(insect, season);
+    const requirements = Object.entries(adjustedLikes);
+    if (requirements.length === 0) return;
+    let metCount = 0;
+    requirements.forEach(([metric, value]) => {
+      if (metrics[metric as Metric] >= Number(value)) metCount++;
+    });
+    totalRequirementRatio += metCount / requirements.length;
+  });
+  const visitorAttraction = Math.round((totalRequirementRatio / insects.length) * 100);
+
+  const fillRate = placed.length / 12;
+  const uniqueTypes = new Set(placed).size;
+  const diversity = uniqueTypes / decorations.length;
+  const counts: Record<string, number> = {};
+  placed.forEach((id) => {
+    counts[id] = (counts[id] || 0) + 1;
+  });
+  const maxCount = Math.max(...Object.values(counts), 0);
+  const excessiveDupPenalty = maxCount > 4 ? 0.5 : maxCount > 3 ? 0.8 : 1;
+  const spaceUtilization = Math.round(
+    (fillRate * 0.4 + diversity * 0.35 + fillRate * excessiveDupPenalty * 0.25) * 100
+  );
+
+  let targetBonus = 0;
+  if (targetInsectId && attractedIds.includes(targetInsectId)) {
+    targetBonus = 15;
+  }
+
+  const total = Math.round((ecologyBalance + visitorAttraction + spaceUtilization) / 3) + targetBonus;
+
+  return {
+    total: Math.min(100, Math.max(0, total)),
+    ecology: Math.min(100, Math.round(ecologyBalance)),
+    attraction: Math.min(100, visitorAttraction),
+    space: Math.min(100, spaceUtilization)
+  };
+}
+
+function generateFocusedLayout(targetInsect: Insect, season: Season | null, maxCells: number): string[] {
+  const adjustedLikes = getAdjustedLikes(targetInsect, season);
+  const requiredMetrics = Object.entries(adjustedLikes) as [Metric, number][];
+  
+  const scoredDecos = decorations.map((deco) => {
+    let score = 0;
+    requiredMetrics.forEach(([metric, needed]) => {
+      if (deco.metrics[metric] > 0) {
+        score += Math.min(deco.metrics[metric], needed) * 2;
+      }
+    });
+    return { deco, score };
+  });
+  scoredDecos.sort((a, b) => b.score - a.score);
+
+  const placed: string[] = [];
+  const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
+  let cellsUsed = 0;
+
+  while (cellsUsed < maxCells) {
+    let bestDeco = scoredDecos[0]?.deco;
+    let bestScore = -1;
+
+    scoredDecos.forEach(({ deco }) => {
+      let marginalScore = 0;
+      requiredMetrics.forEach(([metric, needed]) => {
+        const current = currentMetrics[metric];
+        if (current < needed) {
+          marginalScore += Math.min(deco.metrics[metric], needed - current);
+        }
+      });
+      if (marginalScore > bestScore) {
+        bestScore = marginalScore;
+        bestDeco = deco;
+      }
+    });
+
+    if (bestScore <= 0 && cellsUsed >= maxCells - 1) break;
+    if (bestScore <= 0) {
+      const fallbackDeco = decorations.find((d) => !placed.includes(d.id)) || scoredDecos[0]?.deco;
+      if (!fallbackDeco) break;
+      bestDeco = fallbackDeco;
+    }
+
+    if (!bestDeco) break;
+
+    placed.push(bestDeco.id);
+    (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+      currentMetrics[m] += bestDeco!.metrics[m];
+    });
+    cellsUsed++;
+
+    const allMet = requiredMetrics.every(([metric, needed]) => currentMetrics[metric] >= needed);
+    if (allMet && cellsUsed >= Math.min(3, maxCells * 0.5)) break;
+  }
+
+  while (placed.length < 12) placed.push("");
+  return placed.slice(0, 12);
+}
+
+function generateBalancedLayout(season: Season | null, maxCells: number): string[] {
+  const placed: string[] = [];
+  const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
+  let cellsUsed = 0;
+
+  while (cellsUsed < maxCells) {
+    let bestDeco = decorations[0];
+    let bestScore = -1;
+
+    decorations.forEach((deco) => {
+      const tempMetrics = { ...currentMetrics };
+      (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+        tempMetrics[m] += deco.metrics[m];
+      });
+      const values = (Object.keys(tempMetrics) as Metric[]).map((m) => tempMetrics[m]);
+      const minVal = Math.min(...values);
+      const maxVal = Math.max(...values);
+      const balance = maxVal === 0 ? 0 : 1 - (maxVal - minVal) / (maxVal + 1);
+      const total = values.reduce((a, b) => a + b, 0);
+      const score = balance * 10 + total * 0.5;
+      if (score > bestScore) {
+        bestScore = score;
+        bestDeco = deco;
+      }
+    });
+
+    placed.push(bestDeco.id);
+    (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+      currentMetrics[m] += bestDeco.metrics[m];
+    });
+    cellsUsed++;
+  }
+
+  while (placed.length < 12) placed.push("");
+  return placed.slice(0, 12);
+}
+
+function generateChallengeOrientedLayout(
+  challenge: Challenge,
+  season: Season | null,
+  maxCells: number
+): string[] {
+  const keyMetrics = getKeyMetricsForChallenge(challenge);
+  
+  const placed: string[] = [];
+  const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
+  let cellsUsed = 0;
+
+  if (challenge.type === "metric_limit") {
+    const targetMetric = challenge.target.metric as Metric;
+    const targetValue = challenge.target.value as number;
+    const maxCellsLimit = challenge.target.maxCells as number;
+    const actualMax = Math.min(maxCells, maxCellsLimit);
+
+    const sortedDecos = [...decorations].sort(
+      (a, b) => b.metrics[targetMetric] - a.metrics[targetMetric]
+    );
+
+    while (cellsUsed < actualMax && currentMetrics[targetMetric] < targetValue) {
+      const bestDeco = sortedDecos[0];
+      placed.push(bestDeco.id);
+      (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+        currentMetrics[m] += bestDeco.metrics[m];
+      });
+      cellsUsed++;
+    }
+  } else if (challenge.type === "attract" || challenge.type === "dual_insect") {
+    const insectIds = challenge.type === "attract"
+      ? [challenge.target.insectId as string]
+      : (challenge.target.insectIds as string[]);
+
+    const targetInsects = insectIds
+      .map((id) => insects.find((i) => i.id === id))
+      .filter(Boolean) as Insect[];
+
+    const requiredMetricsSet = new Set<Metric>();
+    targetInsects.forEach((insect) => {
+      Object.keys(getAdjustedLikes(insect, season)).forEach((m) =>
+        requiredMetricsSet.add(m as Metric)
+      );
+    });
+
+    while (cellsUsed < maxCells) {
+      let bestDeco = decorations[0];
+      let bestScore = -1;
+
+      decorations.forEach((deco) => {
+        let score = 0;
+        requiredMetricsSet.forEach((metric) => {
+          score += deco.metrics[metric] * 2;
+        });
+        if (score > bestScore) {
+          bestScore = score;
+          bestDeco = deco;
+        }
+      });
+
+      placed.push(bestDeco.id);
+      (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
+        currentMetrics[m] += bestDeco.metrics[m];
+      });
+      cellsUsed++;
+
+      const effectiveMetrics = calculateAdjustedMetrics(placed, season);
+      const allSatisfied = targetInsects.every((insect) => {
+        const adjustedLikes = getAdjustedLikes(insect, season);
+        return Object.entries(adjustedLikes).every(
+          ([metric, value]) => effectiveMetrics[metric as Metric] >= Number(value)
+        );
+      });
+      if (allSatisfied && cellsUsed >= 3) break;
+    }
+  }
+
+  while (placed.length < 12) placed.push("");
+  return placed.slice(0, 12);
+}
+
+function generateLayoutCandidates(
+  config: LayoutLabConfig,
+  challenge: Challenge
+): LayoutCandidate[] {
+  const season = config.seasonId
+    ? seasons.find((s) => s.id === config.seasonId) || null
+    : null;
+
+  const candidates: LayoutCandidate[] = [];
+  const maxCells = Math.max(1, Math.min(12, config.maxCells));
+
+  if (config.targetInsectId) {
+    const targetInsect = insects.find((i) => i.id === config.targetInsectId);
+    if (targetInsect) {
+      const focusedPlaced = generateFocusedLayout(targetInsect, season, maxCells);
+      const focusedMetrics = calculateMetricsForPlaced(focusedPlaced.filter(Boolean));
+      const focusedAdjusted = calculateAdjustedMetrics(focusedPlaced.filter(Boolean), season);
+      const focusedAttracted = getAttractedInsectIds(focusedAdjusted, season);
+      const focusedScore = calculateLayoutScore(
+        focusedAdjusted,
+        focusedPlaced.filter(Boolean),
+        season,
+        config.targetInsectId
+      );
+      const challengeResult = checkChallengeCompletion(
+        challenge,
+        focusedAdjusted,
+        focusedPlaced.filter(Boolean).length,
+        focusedAttracted
+      );
+
+      candidates.push({
+        id: "focus-" + Date.now() + "-1",
+        name: "目标专注型",
+        strategy: "focus",
+        placed: focusedPlaced,
+        metrics: focusedMetrics,
+        adjustedMetrics: focusedAdjusted,
+        attractedInsectIds: focusedAttracted,
+        score: focusedScore.total,
+        scoreDetail: {
+          ecology: focusedScore.ecology,
+          attraction: focusedScore.attraction,
+          space: focusedScore.space
+        },
+        canCompleteChallenge: challengeResult.success,
+        challengeNote: challengeResult.message
+      });
+    }
+  }
+
+  const balancedPlaced = generateBalancedLayout(season, maxCells);
+  const balancedMetrics = calculateMetricsForPlaced(balancedPlaced.filter(Boolean));
+  const balancedAdjusted = calculateAdjustedMetrics(balancedPlaced.filter(Boolean), season);
+  const balancedAttracted = getAttractedInsectIds(balancedAdjusted, season);
+  const balancedScore = calculateLayoutScore(
+    balancedAdjusted,
+    balancedPlaced.filter(Boolean),
+    season,
+    config.targetInsectId
+  );
+  const balancedChallengeResult = checkChallengeCompletion(
+    challenge,
+    balancedAdjusted,
+    balancedPlaced.filter(Boolean).length,
+    balancedAttracted
+  );
+
+  candidates.push({
+    id: "balanced-" + Date.now() + "-2",
+    name: "均衡发展型",
+    strategy: "balanced",
+    placed: balancedPlaced,
+    metrics: balancedMetrics,
+    adjustedMetrics: balancedAdjusted,
+    attractedInsectIds: balancedAttracted,
+    score: balancedScore.total,
+    scoreDetail: {
+      ecology: balancedScore.ecology,
+      attraction: balancedScore.attraction,
+      space: balancedScore.space
+    },
+    canCompleteChallenge: balancedChallengeResult.success,
+    challengeNote: balancedChallengeResult.message
+  });
+
+  const challengePlaced = generateChallengeOrientedLayout(challenge, season, maxCells);
+  const challengeMetrics = calculateMetricsForPlaced(challengePlaced.filter(Boolean));
+  const challengeAdjusted = calculateAdjustedMetrics(challengePlaced.filter(Boolean), season);
+  const challengeAttracted = getAttractedInsectIds(challengeAdjusted, season);
+  const challengeScore = calculateLayoutScore(
+    challengeAdjusted,
+    challengePlaced.filter(Boolean),
+    season,
+    config.targetInsectId
+  );
+  const challengeChallengeResult = checkChallengeCompletion(
+    challenge,
+    challengeAdjusted,
+    challengePlaced.filter(Boolean).length,
+    challengeAttracted
+  );
+
+  candidates.push({
+    id: "challenge-" + Date.now() + "-3",
+    name: "挑战优先型",
+    strategy: "challenge",
+    placed: challengePlaced,
+    metrics: challengeMetrics,
+    adjustedMetrics: challengeAdjusted,
+    attractedInsectIds: challengeAttracted,
+    score: challengeScore.total,
+    scoreDetail: {
+      ecology: challengeScore.ecology,
+      attraction: challengeScore.attraction,
+      space: challengeScore.space
+    },
+    canCompleteChallenge: challengeChallengeResult.success,
+    challengeNote: challengeChallengeResult.message
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, 3);
+}
+
 type DragSource = { type: "material"; id: string } | { type: "cell"; index: number } | null;
 
 export default function App() {
@@ -592,6 +1025,14 @@ export default function App() {
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
   const [showEcoCalendar, setShowEcoCalendar] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<CalendarDayChallenge | null>(null);
+  const [showLayoutLab, setShowLayoutLab] = useState(false);
+  const [layoutLabConfig, setLayoutLabConfig] = useState<LayoutLabConfig>({
+    targetInsectId: null,
+    seasonId: null,
+    maxCells: 6
+  });
+  const [layoutCandidates, setLayoutCandidates] = useState<LayoutCandidate[]>([]);
+  const [hasGeneratedLayouts, setHasGeneratedLayouts] = useState(false);
 
   const weekCalendar = useMemo(() => generateWeekCalendar(), []);
 
@@ -1295,6 +1736,33 @@ export default function App() {
     setSnapshots((prev) => prev.filter((s) => s.id !== id));
   }
 
+  function handleGenerateLayouts() {
+    const candidates = generateLayoutCandidates(layoutLabConfig, todayChallenge);
+    setLayoutCandidates(candidates);
+    setHasGeneratedLayouts(true);
+  }
+
+  function applyLayoutToHotel(candidate: LayoutCandidate) {
+    const placedClean = cleanPlacedArray([...candidate.placed]);
+    setState((current) => ({
+      ...current,
+      placed: placedClean,
+      lastReport: `已应用「${candidate.name}」布局方案。`
+    }));
+    setShowLayoutLab(false);
+  }
+
+  function openLayoutLab() {
+    setLayoutLabConfig({
+      targetInsectId: null,
+      seasonId: currentSeasonId,
+      maxCells: 6
+    });
+    setLayoutCandidates([]);
+    setHasGeneratedLayouts(false);
+    setShowLayoutLab(true);
+  }
+
   return (
     <main className="hotel">
       <section className="topbar">
@@ -1310,6 +1778,7 @@ export default function App() {
           >
             {currentSeason ? `${currentSeason.icon} ${currentSeason.name}` : "🌍 选择季节"}
           </button>
+          <button onClick={openLayoutLab}>🧪 布局实验室</button>
           <button onClick={() => setShowEcoCalendar(true)}>📅 生态日历</button>
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
@@ -2144,6 +2613,237 @@ export default function App() {
             {!selectedCalendarDay && (
               <div className="eco-calendar-empty-detail">
                 <p>👈 点击左侧任一天的卡片，查看该日挑战详情和材料建议</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showLayoutLab && (
+        <div className="layout-lab-overlay" onClick={() => setShowLayoutLab(false)}>
+          <div className="layout-lab-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="layout-lab-header">
+              <div>
+                <p className="eyebrow">布局实验室</p>
+                <h2>智能生成布局方案</h2>
+                <p className="layout-lab-hint">
+                  选择目标昆虫、季节和最多使用格数，系统将为你生成3个候选布局方案。
+                </p>
+              </div>
+              <button className="layout-lab-close" onClick={() => setShowLayoutLab(false)}>✕</button>
+            </div>
+
+            <div className="layout-lab-config">
+              <div className="config-section">
+                <label className="config-label">🎯 目标昆虫</label>
+                <div className="insect-selector">
+                  <button
+                    className={`insect-option ${layoutLabConfig.targetInsectId === null ? "selected" : ""}`}
+                    onClick={() => setLayoutLabConfig((c) => ({ ...c, targetInsectId: null }))}
+                  >
+                    <span className="insect-option-icon">🎲</span>
+                    <span>不指定</span>
+                  </button>
+                  {insects.map((insect) => (
+                    <button
+                      key={insect.id}
+                      className={`insect-option ${layoutLabConfig.targetInsectId === insect.id ? "selected" : ""}`}
+                      onClick={() => setLayoutLabConfig((c) => ({ ...c, targetInsectId: insect.id }))}
+                    >
+                      <span className="insect-option-icon">{insect.icon}</span>
+                      <span>{insect.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="config-section">
+                <label className="config-label">🌤️ 当前季节</label>
+                <div className="season-selector">
+                  <button
+                    className={`season-option ${layoutLabConfig.seasonId === null ? "selected" : ""}`}
+                    onClick={() => setLayoutLabConfig((c) => ({ ...c, seasonId: null }))}
+                  >
+                    🌍 默认
+                  </button>
+                  {seasons.map((season) => (
+                    <button
+                      key={season.id}
+                      className={`season-option ${layoutLabConfig.seasonId === season.id ? "selected" : ""}`}
+                      style={layoutLabConfig.seasonId === season.id ? { borderColor: season.color, color: season.color } : {}}
+                      onClick={() => setLayoutLabConfig((c) => ({ ...c, seasonId: season.id }))}
+                    >
+                      {season.icon} {season.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="config-section">
+                <label className="config-label">
+                  📦 最多使用格数：<b>{layoutLabConfig.maxCells}</b> 格
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="12"
+                  value={layoutLabConfig.maxCells}
+                  onChange={(e) => setLayoutLabConfig((c) => ({ ...c, maxCells: parseInt(e.target.value) }))}
+                  className="cells-slider"
+                />
+                <div className="cells-scale">
+                  <span>1</span>
+                  <span>6</span>
+                  <span>12</span>
+                </div>
+              </div>
+
+              <button className="generate-btn" onClick={handleGenerateLayouts}>
+                🧪 生成候选方案
+              </button>
+            </div>
+
+            {hasGeneratedLayouts && layoutCandidates.length > 0 && (
+              <div className="layout-candidates">
+                <h3>候选方案</h3>
+                <div className="candidate-grid">
+                  {layoutCandidates.map((candidate, index) => {
+                    const labSeason = layoutLabConfig.seasonId
+                      ? seasons.find((s) => s.id === layoutLabConfig.seasonId) || null
+                      : null;
+                    return (
+                      <article key={candidate.id} className="candidate-card">
+                        <div className="candidate-header">
+                          <div className="candidate-rank" style={{ background: index === 0 ? "#5aa06a" : index === 1 ? "#f9b208" : "#d97706" }}>
+                            {index + 1}
+                          </div>
+                          <div className="candidate-title">
+                            <h4>{candidate.name}</h4>
+                            <span className="candidate-strategy-tag">
+                              {candidate.strategy === "focus" ? "🎯 目标导向" :
+                               candidate.strategy === "balanced" ? "⚖️ 均衡发展" : "🏆 挑战优先"}
+                            </span>
+                          </div>
+                          <div className="candidate-score">
+                            <div className="score-number">{candidate.score}</div>
+                            <div className="score-label">综合分</div>
+                          </div>
+                        </div>
+
+                        <div className="candidate-preview">
+                          <p className="preview-label">12格预览</p>
+                          <div className="mini-grid">
+                            {Array.from({ length: 12 }).map((_, i) => {
+                              const placedId = candidate.placed[i];
+                              const deco = decorations.find((d) => d.id === placedId);
+                              return (
+                                <div
+                                  key={i}
+                                  className={`mini-cell ${deco ? "filled" : "empty"}`}
+                                  style={deco ? { background: deco.color } : {}}
+                                >
+                                  {deco && <span>{deco.icon}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="cells-used">已用 {candidate.placed.filter(Boolean).length} 格</p>
+                        </div>
+
+                        <div className="candidate-metrics">
+                          <p className="section-label">环境指标 {labSeason && <span className="season-mini-hint" style={{ color: labSeason.color }}>（{labSeason.name}调整）</span>}</p>
+                          <div className="metric-bars">
+                            {(Object.keys(candidate.adjustedMetrics) as Metric[]).map((metric) => {
+                              const base = candidate.metrics[metric];
+                              const adjusted = candidate.adjustedMetrics[metric];
+                              const boosted = labSeason && labSeason.affectedMetrics.includes(metric);
+                              return (
+                                <div key={metric} className="metric-row">
+                                  <span className="metric-name">{metricLabels[metric]}</span>
+                                  <div className="metric-bar-track">
+                                    <div
+                                      className="metric-bar-fill"
+                                      style={{ width: `${Math.min(100, (adjusted / 12) * 100)}%` }}
+                                    />
+                                  </div>
+                                  <b className="metric-value">
+                                    {boosted && base !== adjusted ? (
+                                      <>
+                                        <s>{base}</s>→{adjusted}
+                                      </>
+                                    ) : (
+                                      adjusted
+                                    )}
+                                  </b>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="candidate-insects">
+                          <p className="section-label">可吸引昆虫</p>
+                          <div className="attracted-insects">
+                            {candidate.attractedInsectIds.length > 0 ? (
+                              candidate.attractedInsectIds.map((id) => {
+                                const insect = insects.find((i) => i.id === id);
+                                return insect ? (
+                                  <span key={id} className="attracted-insect-tag">
+                                    {insect.icon} {insect.name}
+                                  </span>
+                                ) : null;
+                              })
+                            ) : (
+                              <span className="no-insects-hint">暂无满足条件的昆虫</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="candidate-score-detail">
+                          <div className="score-item">
+                            <span className="score-item-label">生态平衡</span>
+                            <span className="score-item-value">{candidate.scoreDetail.ecology}</span>
+                          </div>
+                          <div className="score-item">
+                            <span className="score-item-label">访客吸引</span>
+                            <span className="score-item-value">{candidate.scoreDetail.attraction}</span>
+                          </div>
+                          <div className="score-item">
+                            <span className="score-item-label">空间利用</span>
+                            <span className="score-item-value">{candidate.scoreDetail.space}</span>
+                          </div>
+                        </div>
+
+                        <div className={`candidate-challenge ${candidate.canCompleteChallenge ? "success" : "fail"}`}>
+                          <div className="challenge-status-icon">
+                            {candidate.canCompleteChallenge ? "✅" : "❌"}
+                          </div>
+                          <div className="challenge-status-text">
+                            <p className="challenge-status-title">
+                              {candidate.canCompleteChallenge ? "可完成今日挑战" : "暂无法完成今日挑战"}
+                            </p>
+                            <p className="challenge-status-desc">{candidate.challengeNote}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          className="apply-layout-btn"
+                          onClick={() => applyLayoutToHotel(candidate)}
+                        >
+                          🚀 一键应用到旅馆
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {!hasGeneratedLayouts && (
+              <div className="layout-lab-empty">
+                <div className="empty-icon">🧪</div>
+                <p>配置好参数后，点击「生成候选方案」</p>
+                <p className="empty-hint">系统将从5种材料中智能组合出3套不同策略的布局方案</p>
               </div>
             )}
           </div>
