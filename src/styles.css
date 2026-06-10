@@ -633,3 +633,268 @@ meter {
     font-size: 1.1rem;
   }
 }
+
+.material-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 32, 24, 0);
+  z-index: 99;
+  pointer-events: none;
+  transition: background 0.3s ease-out;
+}
+
+.material-drawer-overlay.visible {
+  background: rgba(23, 32, 24, 0.72);
+  pointer-events: auto;
+}
+
+.material-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 100%;
+  max-width: 460px;
+  height: 100%;
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.3);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.material-drawer.open {
+  transform: translateX(0);
+}
+
+.material-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 22px 24px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.12);
+  background: inherit;
+  gap: 16px;
+}
+
+.material-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.material-drawer-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 1.8rem;
+  font-weight: 900;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.material-drawer-title h2 {
+  margin-bottom: 0;
+  font-size: 1.4rem;
+}
+
+.material-drawer-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #d7c9a6;
+  color: #1f2818;
+  font-size: 1.1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.material-drawer-close:hover {
+  background: #c7b996;
+}
+
+.material-drawer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.material-drawer-content section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.material-drawer-content h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #172018;
+  font-weight: 800;
+}
+
+.material-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.material-metric-item {
+  display: grid;
+  grid-template-columns: 54px 1fr 36px;
+  gap: 10px;
+  align-items: center;
+}
+
+.material-metric-label {
+  font-size: 0.9rem;
+  color: #5e6558;
+  font-weight: 600;
+}
+
+.material-metric-bar-wrapper {
+  height: 10px;
+  background: rgba(30, 50, 20, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.material-metric-bar {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.4s ease-out;
+}
+
+.material-metric-bar.positive {
+  background: linear-gradient(90deg, #5aa06a, #8bc34a);
+}
+
+.material-metric-bar.neutral {
+  background: rgba(30, 50, 20, 0.15);
+  width: 0;
+}
+
+.material-metric-value {
+  text-align: right;
+  font-size: 0.95rem;
+  color: #172018;
+  font-weight: 800;
+}
+
+.material-related-insects {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.material-insect-card {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff8e9;
+  border: 1px solid rgba(30, 50, 20, 0.08);
+}
+
+.material-insect-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: #5aa06a;
+  color: #fff;
+  font-weight: 900;
+  font-size: 1.2rem;
+}
+
+.material-insect-card strong {
+  font-size: 0.95rem;
+  color: #172018;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.material-insect-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #5e6558;
+  line-height: 1.4;
+}
+
+.material-no-insects {
+  margin: 0;
+  padding: 12px;
+  background: #f1ead8;
+  border-radius: 10px;
+  color: #5e6558;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.material-drawer-action {
+  margin-top: auto;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #5aa06a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.material-drawer-action:hover {
+  background: #4a8a5a;
+}
+
+@media (max-width: 560px) {
+  .material-drawer {
+    max-width: 100%;
+  }
+
+  .material-drawer-header {
+    padding: 18px 18px 16px;
+  }
+
+  .material-drawer-content {
+    padding: 16px 18px 20px;
+    gap: 18px;
+  }
+
+  .material-drawer-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 1.5rem;
+  }
+
+  .material-drawer-title h2 {
+    font-size: 1.2rem;
+  }
+
+  .material-metric-item {
+    grid-template-columns: 48px 1fr 32px;
+  }
+}
+
+@media (min-width: 561px) and (max-width: 980px) {
+  .material-drawer {
+    max-width: 400px;
+  }
+}

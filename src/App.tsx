@@ -298,6 +298,8 @@ export default function App() {
   const [showEncyclopedia, setShowEncyclopedia] = useState(false);
   const [showChallengeResult, setShowChallengeResult] = useState(false);
   const [challengeResult, setChallengeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [selectedDecoration, setSelectedDecoration] = useState<Decoration | null>(null);
+  const [showMaterialDrawer, setShowMaterialDrawer] = useState(false);
 
   const todayChallenge = useMemo(
     () => challengePool.find((c) => c.id === challengeState.currentChallengeId) || challengePool[0],
@@ -346,9 +348,34 @@ export default function App() {
     [state.placed]
   );
 
+  function getRelatedInsects(decoration: Decoration): { insect: Insect; matchCount: number }[] {
+    return insects
+      .map((insect) => {
+        let matchCount = 0;
+        Object.entries(insect.likes).forEach(([metric, required]) => {
+          if (decoration.metrics[metric as Metric] > 0 && required !== undefined) {
+            matchCount++;
+          }
+        });
+        return { insect, matchCount };
+      })
+      .filter((item) => item.matchCount > 0)
+      .sort((a, b) => b.matchCount - a.matchCount);
+  }
+
   function addDecoration(id: string) {
     if (state.placed.length >= 12) return;
+    const decoration = decorations.find((item) => item.id === id);
+    if (decoration) {
+      setSelectedDecoration(decoration);
+      setShowMaterialDrawer(true);
+    }
     setState((current) => ({ ...current, placed: [...current.placed, id] }));
+  }
+
+  function closeMaterialDrawer() {
+    setShowMaterialDrawer(false);
+    setTimeout(() => setSelectedDecoration(null), 300);
   }
 
   function settleDay() {
@@ -523,6 +550,90 @@ export default function App() {
             >
               知道了
             </button>
+          </div>
+        </div>
+      )}
+
+      {selectedDecoration && (
+        <div
+          className={`material-drawer-overlay ${showMaterialDrawer ? "visible" : ""}`}
+          onClick={closeMaterialDrawer}
+        >
+          <div
+            className={`material-drawer ${showMaterialDrawer ? "open" : ""}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="material-drawer-header">
+              <div className="material-drawer-title">
+                <div
+                  className="material-drawer-icon"
+                  style={{ background: selectedDecoration.color }}
+                >
+                  {selectedDecoration.icon}
+                </div>
+                <div>
+                  <p className="eyebrow">材料详情</p>
+                  <h2>{selectedDecoration.name}</h2>
+                </div>
+              </div>
+              <button className="material-drawer-close" onClick={closeMaterialDrawer}>
+                ✕
+              </button>
+            </div>
+
+            <div className="material-drawer-content">
+              <section>
+                <h3>环境指标影响</h3>
+                <div className="material-metrics">
+                  {(Object.keys(selectedDecoration.metrics) as Metric[]).map((metric) => {
+                    const value = selectedDecoration.metrics[metric];
+                    return (
+                      <div key={metric} className="material-metric-item">
+                        <span className="material-metric-label">{metricLabels[metric]}</span>
+                        <div className="material-metric-bar-wrapper">
+                          <div
+                            className={`material-metric-bar ${value > 0 ? "positive" : "neutral"}`}
+                            style={{ width: `${(value / 4) * 100}%` }}
+                          />
+                        </div>
+                        <b className="material-metric-value">
+                          {value > 0 ? `+${value}` : value}
+                        </b>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section>
+                <h3>适合吸引</h3>
+                <div className="material-related-insects">
+                  {getRelatedInsects(selectedDecoration).length > 0 ? (
+                    getRelatedInsects(selectedDecoration).map(({ insect, matchCount }) => (
+                      <div key={insect.id} className="material-insect-card">
+                        <span className="material-insect-icon">{insect.icon}</span>
+                        <div>
+                          <strong>{insect.name}</strong>
+                          <p>
+                            {matchCount >= 2
+                              ? `提供了${matchCount}项偏好，很可能吸引它来访`
+                              : "有一定吸引力"}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="material-no-insects">
+                      单独使用效果有限，建议与其他材料组合搭配。
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              <button className="material-drawer-action" onClick={closeMaterialDrawer}>
+                我知道了
+              </button>
+            </div>
           </div>
         </div>
       )}
