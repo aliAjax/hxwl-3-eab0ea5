@@ -18,6 +18,27 @@ type Insect = {
   note: string;
 };
 
+type ChallengeType = "attract" | "metric_limit" | "dual_insect";
+
+type Challenge = {
+  id: string;
+  type: ChallengeType;
+  title: string;
+  description: string;
+  target: Record<string, number | string | string[]>;
+  feedback: {
+    success: string;
+    fail: string;
+  };
+};
+
+type ChallengeState = {
+  currentChallengeId: string;
+  date: string;
+  completed: boolean;
+  lastResult: string | null;
+};
+
 type HotelState = {
   placed: string[];
   guests: string[];
@@ -25,6 +46,142 @@ type HotelState = {
 };
 
 const storageKey = "hxwl-3-hotel";
+const challengeStorageKey = "hxwl-3-challenge";
+
+const challengePool: Challenge[] = [
+  {
+    id: "attract_bee",
+    type: "attract",
+    title: "欢迎独居蜂",
+    description: "今天让至少一只独居蜂入住旅馆。",
+    target: { insectId: "bee", count: 1 },
+    feedback: {
+      success: "太棒了！独居蜂找到了温馨的小家。",
+      fail: "独居蜂还没有被吸引来，试着增加花蜜和藏身。"
+    }
+  },
+  {
+    id: "attract_firefly",
+    type: "attract",
+    title: "寻找萤火虫",
+    description: "让萤火虫在今夜停留。",
+    target: { insectId: "firefly", count: 1 },
+    feedback: {
+      success: "萤火虫在旅馆周围闪烁，真美！",
+      fail: "萤火虫偏爱湿润和遮阴，再调整一下环境吧。"
+    }
+  },
+  {
+    id: "attract_butterfly",
+    type: "attract",
+    title: "蝴蝶翩翩",
+    description: "吸引一只薄翅蝶来访。",
+    target: { insectId: "butterfly", count: 1 },
+    feedback: {
+      success: "薄翅蝶在花丛中翩翩起舞！",
+      fail: "蝴蝶需要充足的花蜜和一点点遮阴。"
+    }
+  },
+  {
+    id: "metric_nectar_6",
+    type: "metric_limit",
+    title: "花蜜收集家",
+    description: "在不超过6格材料的情况下，让花蜜值达到8以上。",
+    target: { metric: "nectar", value: 8, maxCells: 6 },
+    feedback: {
+      success: "高效的花蜜收集！小昆虫们有口福了。",
+      fail: "花蜜还不够多，或者用了太多格子，再试试看。"
+    }
+  },
+  {
+    id: "metric_shelter_5",
+    type: "metric_limit",
+    title: "安全藏身处",
+    description: "在不超过5格材料的情况下，让藏身值达到10。",
+    target: { metric: "shelter", value: 10, maxCells: 5 },
+    feedback: {
+      success: "完美的藏身处！小昆虫们感到很安全。",
+      fail: "藏身空间还不够，或者格子用多了，优化一下布局。"
+    }
+  },
+  {
+    id: "metric_moisture_5",
+    type: "metric_limit",
+    title: "湿润小天地",
+    description: "用不超过5格材料，让湿润值达到8。",
+    target: { metric: "moisture", value: 8, maxCells: 5 },
+    feedback: {
+      success: "湿润的环境刚刚好，萤火虫会喜欢的。",
+      fail: "湿润度还不够，试试苔藓毯的组合。"
+    }
+  },
+  {
+    id: "metric_shade_4",
+    type: "metric_limit",
+    title: "清凉角落",
+    description: "用不超过4格材料，让遮阴值达到6。",
+    target: { metric: "shade", value: 6, maxCells: 4 },
+    feedback: {
+      success: "凉爽的树荫下，瓢虫们悠然自得。",
+      fail: "遮阴还不够，试试阔叶伞的组合。"
+    }
+  },
+  {
+    id: "dual_bee_beetle",
+    type: "dual_insect",
+    title: "热闹旅馆",
+    description: "同时满足独居蜂和蓝背甲虫的入住条件。",
+    target: { insectIds: ["bee", "beetle"] },
+    feedback: {
+      success: "独居蜂和蓝背甲虫成为了邻居！",
+      fail: "需要同时满足两种昆虫的偏好，花蜜和藏身都要足够。"
+    }
+  },
+  {
+    id: "dual_ladybird_firefly",
+    type: "dual_insect",
+    title: "夜间派对",
+    description: "同时满足七星瓢虫和萤火虫的入住条件。",
+    target: { insectIds: ["ladybird", "firefly"] },
+    feedback: {
+      success: "瓢虫和萤火虫共享这片小天地！",
+      fail: "遮阴、湿润和藏身都要考虑到，再调整一下。"
+    }
+  },
+  {
+    id: "dual_butterfly_ladybird",
+    type: "dual_insect",
+    title: "春日访客",
+    description: "同时满足薄翅蝶和七星瓢虫的入住条件。",
+    target: { insectIds: ["butterfly", "ladybird"] },
+    feedback: {
+      success: "蝴蝶和瓢虫在花间嬉戏，一派春意！",
+      fail: "需要花蜜、遮阴和藏身的平衡搭配。"
+    }
+  },
+  {
+    id: "attract_beetle",
+    type: "attract",
+    title: "甲虫之家",
+    description: "让蓝背甲虫找到满意的藏身处。",
+    target: { insectId: "beetle", count: 1 },
+    feedback: {
+      success: "蓝背甲虫满意地钻进了它的小窝！",
+      fail: "蓝背甲虫需要足够多的藏身空间。"
+    }
+  },
+  {
+    id: "attract_ladybird",
+    type: "attract",
+    title: "瓢虫来做客",
+    description: "吸引七星瓢虫入住。",
+    target: { insectId: "ladybird", count: 1 },
+    feedback: {
+      success: "七星瓢虫慢悠悠地住进了新家！",
+      fail: "瓢虫喜欢安静的角落，需要遮阴和藏身。"
+    }
+  }
+];
 
 const metricLabels: Record<Metric, string> = {
   shade: "遮阴",
@@ -57,13 +214,113 @@ function loadState(): HotelState {
   }
 }
 
+function getTodayString(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+function getTodayChallenge(): Challenge {
+  const today = getTodayString();
+  const dayOfYear = Math.floor(
+    (new Date(today).getTime() - new Date(new Date(today).getFullYear(), 0, 0).getTime()) / 86400000
+  );
+  const index = dayOfYear % challengePool.length;
+  return challengePool[index];
+}
+
+function loadChallengeState(): ChallengeState {
+  const today = getTodayString();
+  try {
+    const saved = JSON.parse(localStorage.getItem(challengeStorageKey) || "") as ChallengeState;
+    if (saved.date === today) {
+      return saved;
+    }
+  } catch {
+    // ignore
+  }
+  const challenge = getTodayChallenge();
+  return {
+    currentChallengeId: challenge.id,
+    date: today,
+    completed: false,
+    lastResult: null
+  };
+}
+
+function checkChallengeCompletion(
+  challenge: Challenge,
+  metrics: Record<Metric, number>,
+  placedCount: number,
+  matchedInsectIds: string[]
+): { success: boolean; message: string } {
+  switch (challenge.type) {
+    case "attract": {
+      const insectId = challenge.target.insectId as string;
+      const success = matchedInsectIds.includes(insectId);
+      return {
+        success,
+        message: success ? challenge.feedback.success : challenge.feedback.fail
+      };
+    }
+    case "metric_limit": {
+      const metric = challenge.target.metric as Metric;
+      const value = challenge.target.value as number;
+      const maxCells = challenge.target.maxCells as number;
+      const success = metrics[metric] >= value && placedCount <= maxCells;
+      return {
+        success,
+        message: success ? challenge.feedback.success : challenge.feedback.fail
+      };
+    }
+    case "dual_insect": {
+      const insectIds = challenge.target.insectIds as string[];
+      const success = insectIds.every((id) => matchedInsectIds.includes(id));
+      return {
+        success,
+        message: success ? challenge.feedback.success : challenge.feedback.fail
+      };
+    }
+    default:
+      return { success: false, message: "未知挑战类型。" };
+  }
+}
+
 export default function App() {
   const [state, setState] = useState<HotelState>(loadState);
+  const [challengeState, setChallengeState] = useState<ChallengeState>(loadChallengeState);
   const [showEncyclopedia, setShowEncyclopedia] = useState(false);
+  const [showChallengeResult, setShowChallengeResult] = useState(false);
+  const [challengeResult, setChallengeResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const todayChallenge = useMemo(
+    () => challengePool.find((c) => c.id === challengeState.currentChallengeId) || challengePool[0],
+    [challengeState.currentChallengeId]
+  );
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(state));
   }, [state]);
+
+  useEffect(() => {
+    localStorage.setItem(challengeStorageKey, JSON.stringify(challengeState));
+  }, [challengeState]);
+
+  useEffect(() => {
+    const checkDate = () => {
+      const today = getTodayString();
+      if (challengeState.date !== today) {
+        const challenge = getTodayChallenge();
+        setChallengeState({
+          currentChallengeId: challenge.id,
+          date: today,
+          completed: false,
+          lastResult: null
+        });
+      }
+    };
+    checkDate();
+    const interval = setInterval(checkDate, 60000);
+    return () => clearInterval(interval);
+  }, [challengeState.date]);
 
   const metrics = useMemo(
     () =>
@@ -90,12 +347,24 @@ export default function App() {
     const matched = insects.filter((insect) =>
       Object.entries(insect.likes).every(([metric, value]) => metrics[metric as Metric] >= Number(value))
     );
-    const guestIds = Array.from(new Set([...state.guests, ...matched.map((insect) => insect.id)]));
+    const matchedIds = matched.map((insect) => insect.id);
+    const guestIds = Array.from(new Set([...state.guests, ...matchedIds]));
     const report =
       matched.length > 0
         ? `今天有${matched.map((insect) => insect.name).join("、")}注意到了旅馆。`
         : "今天环境还不够有吸引力，试着增加花蜜、湿润或藏身处。";
     setState((current) => ({ ...current, guests: guestIds, lastReport: report }));
+
+    if (!challengeState.completed) {
+      const result = checkChallengeCompletion(todayChallenge, metrics, state.placed.length, matchedIds);
+      setChallengeResult(result);
+      setShowChallengeResult(true);
+      setChallengeState((current) => ({
+        ...current,
+        completed: result.success,
+        lastResult: result.message
+      }));
+    }
   }
 
   return (
@@ -109,6 +378,27 @@ export default function App() {
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
+        </div>
+      </section>
+
+      <section className="challenge-banner">
+        <div className={`challenge-card ${challengeState.completed ? "completed" : ""}`}>
+          <div className="challenge-icon">
+            {challengeState.completed ? "✓" : "★"}
+          </div>
+          <div className="challenge-content">
+            <p className="eyebrow">每日挑战 · {todayChallenge.type === "attract" ? "吸引昆虫" : todayChallenge.type === "metric_limit" ? "环境目标" : "双重满足"}</p>
+            <h2>{todayChallenge.title}</h2>
+            <p>{todayChallenge.description}</p>
+            {challengeState.completed && challengeState.lastResult && (
+              <p className="challenge-complete-note">✓ {challengeState.lastResult}</p>
+            )}
+          </div>
+          <div className="challenge-status">
+            <span className={`status-badge ${challengeState.completed ? "done" : "pending"}`}>
+              {challengeState.completed ? "已完成" : "进行中"}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -205,6 +495,26 @@ export default function App() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showChallengeResult && challengeResult && (
+        <div className="challenge-overlay" onClick={() => setShowChallengeResult(false)}>
+          <div className="challenge-modal" onClick={(e) => e.stopPropagation()}>
+            <div className={`challenge-modal-icon ${challengeResult.success ? "success" : "fail"}`}>
+              {challengeResult.success ? "🎉" : "💪"}
+            </div>
+            <h2 className="challenge-modal-title">
+              {challengeResult.success ? "挑战成功！" : "继续加油！"}
+            </h2>
+            <p className="challenge-modal-message">{challengeResult.message}</p>
+            <button
+              className="challenge-modal-button"
+              onClick={() => setShowChallengeResult(false)}
+            >
+              知道了
+            </button>
           </div>
         </div>
       )}
