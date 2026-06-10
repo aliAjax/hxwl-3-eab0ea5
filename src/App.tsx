@@ -312,9 +312,26 @@ const insects: Insect[] = [
   { id: "butterfly", name: "薄翅蝶", icon: "蝶", likes: { nectar: 4, shade: 1 }, note: "会被花蜜吸引，但不喜欢太暴晒。" }
 ];
 
+function cleanPlacedArray(placed: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const val = placed[i];
+    result.push(val && decorations.find((d) => d.id === val) ? val : "");
+  }
+  let endIndex = 11;
+  while (endIndex >= 0 && result[endIndex] === "") {
+    endIndex--;
+  }
+  return result.slice(0, endIndex + 1);
+}
+
 function loadState(): HotelState {
   try {
-    return JSON.parse(localStorage.getItem(storageKey) || "") as HotelState;
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "") as HotelState;
+    return {
+      ...saved,
+      placed: cleanPlacedArray(saved.placed || [])
+    };
   } catch {
     return { placed: [], guests: [], lastReport: "旅馆刚开张，还没有访客记录。" };
   }
@@ -434,6 +451,8 @@ function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record
   return result;
 }
 
+type DragSource = { type: "material"; id: string } | { type: "cell"; index: number } | null;
+
 export default function App() {
   const [state, setState] = useState<HotelState>(loadState);
   const [challengeState, setChallengeState] = useState<ChallengeState>(loadChallengeState);
@@ -447,6 +466,29 @@ export default function App() {
   const [snapshotName, setSnapshotName] = useState("");
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
+
+  const [dragSource, setDragSource] = useState<DragSource>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchDragRef = useRef<{
+    active: boolean;
+    source: DragSource;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    ghostEl: HTMLElement | null;
+  }>({
+    active: false,
+    source: null,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    ghostEl: null
+  });
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const currentSeason = useMemo(
     () => (currentSeasonId ? seasons.find((s) => s.id === currentSeasonId) || null : null),
@@ -788,14 +830,236 @@ export default function App() {
       .sort((a, b) => b.matchCount - a.matchCount);
   }
 
+  function moveItem(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    setState((current) => {
+      const newPlaced = [...current.placed];
+      while (newPlaced.length < 12) {
+        newPlaced.push("");
+      }
+      const item = newPlaced[fromIndex];
+      const targetItem = newPlaced[toIndex];
+      newPlaced[fromIndex] = targetItem || "";
+      newPlaced[toIndex] = item;
+      const cleanedPlaced = cleanPlacedArray(newPlaced);
+      return { ...current, placed: cleanedPlaced };
+    });
+  }
+
+  function placeMaterialAt(materialId: string, targetIndex: number) {
+    setState((current) => {
+      const newPlaced = [...current.placed];
+      while (newPlaced.length < 12) {
+        newPlaced.push("");
+      }
+      newPlaced[targetIndex] = materialId;
+      return { ...current, placed: newPlaced };
+    });
+  }
+
+  function removeMaterial(index: number) {
+    setState((current) => {
+      const newPlaced = [...current.placed];
+      while (newPlaced.length < 12) {
+        newPlaced.push("");
+      }
+      newPlaced[index] = "";
+      const cleanedPlaced = cleanPlacedArray(newPlaced);
+      return { ...current, placed: cleanedPlaced };
+    });
+  }
+
+  function getCellIndexFromPoint(clientX: number, clientY: number): number | null {
+    const cells = cellRefs.current;
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      if (!cell) continue;
+      const rect = cell.getBoundingClientRect();
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  function createGhostElement(decoration: Decoration, clientX: number, clientY: number): HTMLElement {
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost";
+    ghost.innerHTML = `<span style="background: ${decoration.color}">${decoration.icon}</span>`;
+    ghost.style.position = "fixed";
+    ghost.style.pointerEvents = "none";
+    ghost.style.zIndex = "9999";
+    ghost.style.opacity = "0.85";
+    ghost.style.transform = "translate(-50%, -50%) scale(1.1)";
+    ghost.style.left = `${clientX}px`;
+    ghost.style.top = `${clientY}px`;
+    document.body.appendChild(ghost);
+    return ghost;
+  }
+
+  function handleMaterialDragStart(e: React.DragEvent, id: string) {
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("text/plain", id);
+    setDragSource({ type: "material", id });
+    setIsDragging(true);
+  }
+
+  function handleCellDragStart(e: React.DragEvent, index: number) {
+    const id = state.placed[index];
+    if (!id) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+    setDragSource({ type: "cell", index });
+    setIsDragging(true);
+  }
+
+  function handleCellDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = dragSource?.type === "material" ? "copy" : "move";
+    setDragOverIndex(index);
+  }
+
+  function handleCellDragLeave() {
+    setDragOverIndex(null);
+  }
+
+  function handleCellDrop(e: React.DragEvent, targetIndex: number) {
+    e.preventDefault();
+    const materialId = e.dataTransfer.getData("text/plain");
+
+    if (dragSource?.type === "cell") {
+      moveItem(dragSource.index, targetIndex);
+    } else if (dragSource?.type === "material" && materialId) {
+      placeMaterialAt(materialId, targetIndex);
+    }
+
+    setDragSource(null);
+    setDragOverIndex(null);
+    setIsDragging(false);
+  }
+
+  function handleDragEnd() {
+    setDragSource(null);
+    setDragOverIndex(null);
+    setIsDragging(false);
+  }
+
+  function handleMaterialTouchStart(e: React.TouchEvent, id: string) {
+    const touch = e.touches[0];
+    const decoration = decorations.find((d) => d.id === id);
+    if (!decoration) return;
+
+    e.preventDefault();
+    touchDragRef.current = {
+      active: true,
+      source: { type: "material", id },
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY)
+    };
+    setIsDragging(true);
+    setDragSource({ type: "material", id });
+  }
+
+  function handleCellTouchStart(e: React.TouchEvent, index: number) {
+    const id = state.placed[index];
+    if (!id) return;
+
+    const touch = e.touches[0];
+    const decoration = decorations.find((d) => d.id === id);
+    if (!decoration) return;
+
+    e.preventDefault();
+    touchDragRef.current = {
+      active: true,
+      source: { type: "cell", index },
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY)
+    };
+    setIsDragging(true);
+    setDragSource({ type: "cell", index });
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (!touchDragRef.current.active) return;
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    touchDragRef.current.currentX = touch.clientX;
+    touchDragRef.current.currentY = touch.clientY;
+
+    if (touchDragRef.current.ghostEl) {
+      touchDragRef.current.ghostEl.style.left = `${touch.clientX}px`;
+      touchDragRef.current.ghostEl.style.top = `${touch.clientY}px`;
+    }
+
+    const cellIndex = getCellIndexFromPoint(touch.clientX, touch.clientY);
+    setDragOverIndex(cellIndex);
+  }
+
+  function handleTouchEnd() {
+    if (!touchDragRef.current.active) return;
+
+    const { source, currentX, currentY, ghostEl } = touchDragRef.current;
+
+    if (ghostEl) {
+      ghostEl.remove();
+    }
+
+    const targetIndex = getCellIndexFromPoint(currentX, currentY);
+
+    if (targetIndex !== null && source) {
+      if (source.type === "cell") {
+        moveItem(source.index, targetIndex);
+      } else if (source.type === "material") {
+        placeMaterialAt(source.id, targetIndex);
+      }
+    }
+
+    touchDragRef.current = {
+      active: false,
+      source: null,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      ghostEl: null
+    };
+    setIsDragging(false);
+    setDragSource(null);
+    setDragOverIndex(null);
+  }
+
   function addDecoration(id: string) {
-    if (state.placed.length >= 12) return;
     const decoration = decorations.find((item) => item.id === id);
     if (decoration) {
       setSelectedDecoration(decoration);
       setShowMaterialDrawer(true);
     }
-    setState((current) => ({ ...current, placed: [...current.placed, id] }));
+    setState((current) => {
+      const newPlaced = [...current.placed];
+      while (newPlaced.length < 12) {
+        newPlaced.push("");
+      }
+      const firstEmptyIndex = newPlaced.findIndex((val) => !val || !decorations.find((d) => d.id === val));
+      if (firstEmptyIndex === -1) return current;
+      newPlaced[firstEmptyIndex] = id;
+      const cleanedPlaced = cleanPlacedArray(newPlaced);
+      return { ...current, placed: cleanedPlaced };
+    });
   }
 
   function closeMaterialDrawer() {
@@ -892,7 +1156,7 @@ export default function App() {
   function restoreSnapshot(snapshot: Snapshot) {
     setState((current) => ({
       ...current,
-      placed: [...snapshot.placed],
+      placed: cleanPlacedArray([...snapshot.placed]),
       guests: [...snapshot.guests],
       lastReport: snapshot.lastReport
     }));
@@ -991,7 +1255,16 @@ export default function App() {
           <h2>材料箱</h2>
           <div className="deco-list">
             {decorations.map((decoration) => (
-              <button key={decoration.id} onClick={() => addDecoration(decoration.id)}>
+              <button
+                key={decoration.id}
+                onClick={() => addDecoration(decoration.id)}
+                draggable
+                onDragStart={(e) => handleMaterialDragStart(e, decoration.id)}
+                onDragEnd={handleDragEnd}
+                onTouchStart={(e) => handleMaterialTouchStart(e, decoration.id)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              >
                 <span style={{ background: decoration.color }}>{decoration.icon}</span>
                 <strong>{decoration.name}</strong>
               </button>
@@ -1001,11 +1274,34 @@ export default function App() {
 
         <div className="panel hotel-board">
           <h2>旅馆格</h2>
-          <div className="grid">
+          <div
+            className={`grid ${isDragging ? "dragging-active" : ""}`}
+            ref={gridRef}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             {Array.from({ length: 12 }).map((_, index) => {
               const placed = decorations.find((item) => item.id === state.placed[index]);
+              const isDragOver = dragOverIndex === index;
+              const isDragSource = dragSource?.type === "cell" && dragSource.index === index;
               return (
-                <button key={index} onClick={() => setState((current) => ({ ...current, placed: current.placed.filter((_, itemIndex) => itemIndex !== index) }))}>
+                <button
+                  key={index}
+                  ref={(el) => (cellRefs.current[index] = el)}
+                  draggable={!!placed}
+                  onClick={() => removeMaterial(index)}
+                  onDragStart={(e) => handleCellDragStart(e, index)}
+                  onDragOver={(e) => handleCellDragOver(e, index)}
+                  onDragLeave={handleCellDragLeave}
+                  onDrop={(e) => handleCellDrop(e, index)}
+                  onDragEnd={handleDragEnd}
+                  onTouchStart={(e) => handleCellTouchStart(e, index)}
+                  className={[
+                    isDragOver ? "drag-over" : "",
+                    isDragSource ? "drag-source" : "",
+                    placed ? "has-material" : "empty"
+                  ].join(" ").trim()}
+                >
                   {placed && <span style={{ background: placed.color }}>{placed.icon}</span>}
                 </button>
               );
