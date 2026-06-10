@@ -336,6 +336,10 @@ meter {
   background: #f1ead8;
 }
 
+.encyclopedia-card.locked .encyclopedia-icon > span {
+  background: #8d8a82;
+}
+
 .encyclopedia-icon {
   position: relative;
   width: 70px;
@@ -352,10 +356,6 @@ meter {
   font-size: 2rem;
   font-weight: 900;
   background: #5aa06a;
-}
-
-.encyclopedia-card.locked .encyclopedia-icon > span {
-  background: #8d8a82;
 }
 
 .encyclopedia-badge {
@@ -412,22 +412,11 @@ meter {
   font-weight: 700;
 }
 
-.likes-unknown {
-  color: #8d8a82;
-  font-size: 0.8rem;
-  font-style: italic;
-}
-
 .encyclopedia-note {
   margin: 4px 0 0;
   font-size: 0.85rem;
   color: #5e6558;
   line-height: 1.5;
-}
-
-.encyclopedia-card.locked .encyclopedia-note {
-  color: #8d8a82;
-  font-style: italic;
 }
 
 @media (max-width: 560px) {

@@ -185,27 +185,21 @@ export default function App() {
                 return (
                   <article key={insect.id} className={`encyclopedia-card ${isCheckedIn ? "checked-in" : "locked"}`}>
                     <div className="encyclopedia-icon">
-                      <span>{isCheckedIn ? insect.icon : "?"}</span>
+                      <span>{insect.icon}</span>
                       {isCheckedIn && <div className="encyclopedia-badge">已入住</div>}
                       {!isCheckedIn && <div className="encyclopedia-lock">🔒</div>}
                     </div>
                     <div className="encyclopedia-info">
-                      <strong>{isCheckedIn ? insect.name : "??? "}</strong>
+                      <strong>{insect.name}</strong>
                       <div className="encyclopedia-likes">
                         <span className="likes-label">偏好：</span>
-                        {isCheckedIn ? (
-                          Object.entries(insect.likes).map(([metric, value]) => (
-                            <span key={metric} className="like-tag">
-                              {metricLabels[metric as Metric]} ×{value}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="likes-unknown">未解锁</span>
-                        )}
+                        {Object.entries(insect.likes).map(([metric, value]) => (
+                          <span key={metric} className="like-tag">
+                            {metricLabels[metric as Metric]} ×{value}
+                          </span>
+                        ))}
                       </div>
-                      <p className="encyclopedia-note">
-                        {isCheckedIn ? insect.note : "成功吸引它入住后解锁详细信息。"}
-                      </p>
+                      <p className="encyclopedia-note">{insect.note}</p>
                     </div>
                   </article>
                 );
