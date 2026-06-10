@@ -3252,3 +3252,606 @@ meter {
     padding: 16px 16px 24px;
   }
 }
+
+.log-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(23, 32, 24, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.log-modal {
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  border-radius: 14px;
+  max-width: 860px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  animation: slideUp 0.3s ease-out;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 28px 16px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.1);
+  position: sticky;
+  top: 0;
+  background: linear-gradient(180deg, #fdfbf0, #f6ead8);
+  z-index: 2;
+}
+
+.log-header h2 {
+  margin: 4px 0;
+  font-size: 1.6rem;
+  color: #2e3820;
+}
+
+.log-progress {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #5e6558;
+}
+
+.log-progress b {
+  color: #2e3820;
+}
+
+.log-close {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  color: #5e6558;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.log-close:hover {
+  background: rgba(30, 50, 20, 0.08);
+  color: #2e3820;
+}
+
+.log-filters {
+  padding: 16px 28px;
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.1);
+}
+
+.log-filter-group {
+  display: grid;
+  gap: 6px;
+}
+
+.log-filter-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #5e6558;
+}
+
+.log-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-filter-btn {
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  background: rgba(30, 50, 20, 0.06);
+  color: #5e6558;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.log-filter-btn:hover {
+  background: rgba(30, 50, 20, 0.1);
+}
+
+.log-filter-btn.selected {
+  background: #2e3820;
+  color: #f8fff2;
+  border-color: #2e3820;
+}
+
+.log-filter-btn.season.selected {
+  background: rgba(30, 50, 20, 0.08);
+  border-width: 1.5px;
+}
+
+.log-filter-btn.success.selected {
+  background: #e8f5e9;
+  color: #2e3820;
+  border-color: rgba(90, 160, 106, 0.5);
+}
+
+.log-filter-btn.fail.selected {
+  background: #fff3e0;
+  color: #2e3820;
+  border-color: rgba(217, 119, 6, 0.5);
+}
+
+.log-empty {
+  padding: 60px 28px;
+  text-align: center;
+}
+
+.log-empty-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.log-empty p {
+  margin: 4px 0;
+  color: #5e6558;
+  font-size: 0.95rem;
+}
+
+.log-empty-hint {
+  font-size: 0.8rem !important;
+  color: #8d8a82 !important;
+}
+
+.log-trend {
+  padding: 20px 28px 12px;
+  border-bottom: 1px solid rgba(30, 50, 20, 0.1);
+}
+
+.log-trend h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: #2e3820;
+}
+
+.log-trend-chart {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 0;
+  height: 180px;
+  position: relative;
+}
+
+.log-trend-y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-right: 6px;
+  font-size: 0.65rem;
+  color: #8d8a82;
+  font-weight: 600;
+}
+
+.log-trend-grid {
+  position: relative;
+  height: 100%;
+}
+
+.log-trend-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(30, 50, 20, 0.08);
+}
+
+.log-trend-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  padding-bottom: 24px;
+}
+
+.log-trend-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  max-width: 80px;
+}
+
+.log-trend-bars-group {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 140px;
+}
+
+.log-trend-bar {
+  width: 14px;
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.log-trend-bar.ecology {
+  background: linear-gradient(180deg, #5aa06a, #7dbf8a);
+}
+
+.log-trend-bar.attraction {
+  background: linear-gradient(180deg, #df8a9b, #e8a8b5);
+}
+
+.log-trend-bar.space {
+  background: linear-gradient(180deg, #f9b208, #fbc434);
+}
+
+.log-trend-label {
+  font-size: 0.6rem;
+  color: #8d8a82;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.log-trend-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.log-trend-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #5e6558;
+  font-weight: 600;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legend-dot.ecology {
+  background: #5aa06a;
+}
+
+.legend-dot.attraction {
+  background: #df8a9b;
+}
+
+.legend-dot.space {
+  background: #f9b208;
+}
+
+.log-list {
+  padding: 16px 28px 24px;
+  display: grid;
+  gap: 12px;
+}
+
+.log-card {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid rgba(30, 50, 20, 0.08);
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+
+.log-card:hover {
+  box-shadow: 0 4px 16px rgba(30, 50, 20, 0.08);
+}
+
+.log-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(30, 50, 20, 0.03);
+  border-bottom: 1px solid rgba(30, 50, 20, 0.06);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-card-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-date-value {
+  font-weight: 800;
+  color: #2e3820;
+  font-size: 0.9rem;
+}
+
+.log-season-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.log-season-tag.default {
+  color: #8d8a82;
+}
+
+.log-card-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.log-challenge-badge {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.log-challenge-badge.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.log-challenge-badge.fail {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.log-grade-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-weight: 900;
+  font-size: 0.85rem;
+}
+
+.log-grade-badge.grade-s {
+  background: linear-gradient(135deg, #ffd700, #ffec3d);
+  color: #8a6d00;
+}
+
+.log-grade-badge.grade-a {
+  background: linear-gradient(135deg, #5aa06a, #7dbf8a);
+  color: #fff;
+}
+
+.log-grade-badge.grade-b {
+  background: linear-gradient(135deg, #60a5fa, #93c5fd);
+  color: #fff;
+}
+
+.log-grade-badge.grade-c {
+  background: linear-gradient(135deg, #d97706, #f59e0b);
+  color: #fff;
+}
+
+.log-grade-badge.grade-d {
+  background: linear-gradient(135deg, #8d8a82, #a8a59e);
+  color: #fff;
+}
+
+.log-grade-badge.grade-none {
+  background: #e8e5dd;
+  color: #8d8a82;
+}
+
+.log-card-body {
+  padding: 12px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.log-card-section h4 {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: #5e6558;
+  font-weight: 700;
+}
+
+.log-placed-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.log-placed-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  font-size: 0.85rem;
+  color: #fff;
+  font-weight: 700;
+}
+
+.log-placed-empty {
+  font-size: 0.8rem;
+  color: #8d8a82;
+  font-style: italic;
+}
+
+.log-metrics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-metric-chip {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(30, 50, 20, 0.06);
+  font-size: 0.78rem;
+  color: #2e3820;
+  font-weight: 600;
+}
+
+.log-metric-chip s {
+  color: #8d8a82;
+  font-size: 0.7rem;
+  margin-right: 2px;
+}
+
+.log-metric-chip b {
+  color: #2e3820;
+}
+
+.log-insects-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-insect-tag {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #e1f1d4;
+  color: #3e6328;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.log-challenge-info {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #2e3820;
+  font-weight: 600;
+}
+
+.log-rating-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-rating-chip {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.log-rating-chip.ecology {
+  background: rgba(90, 160, 106, 0.12);
+  color: #3e6328;
+}
+
+.log-rating-chip.attraction {
+  background: rgba(223, 138, 155, 0.12);
+  color: #8a3a4a;
+}
+
+.log-rating-chip.space {
+  background: rgba(249, 178, 8, 0.12);
+  color: #8a6d00;
+}
+
+.log-card-footer {
+  padding: 8px 16px;
+  border-top: 1px solid rgba(30, 50, 20, 0.06);
+}
+
+.log-created-at {
+  font-size: 0.7rem;
+  color: #8d8a82;
+}
+
+.log-no-match {
+  padding: 40px 28px;
+  text-align: center;
+}
+
+.log-no-match p {
+  color: #5e6558;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .log-header {
+    padding: 16px 16px 12px;
+  }
+
+  .log-header h2 {
+    font-size: 1.3rem;
+  }
+
+  .log-filters {
+    padding: 12px 16px;
+  }
+
+  .log-filter-options {
+    gap: 4px;
+  }
+
+  .log-filter-btn {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+
+  .log-trend {
+    padding: 16px 16px 8px;
+  }
+
+  .log-trend-chart {
+    height: 140px;
+  }
+
+  .log-trend-bars-group {
+    height: 100px;
+  }
+
+  .log-trend-bar {
+    width: 10px;
+  }
+
+  .log-list {
+    padding: 12px 16px 20px;
+  }
+
+  .log-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .log-modal {
+    max-height: 92vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .log-trend-chart {
+    height: 120px;
+  }
+
+  .log-trend-bars-group {
+    height: 80px;
+  }
+
+  .log-trend-bar {
+    width: 8px;
+  }
+
+  .log-trend-legend {
+    gap: 8px;
+  }
+
+  .log-trend-legend-item {
+    font-size: 0.65rem;
+  }
+}

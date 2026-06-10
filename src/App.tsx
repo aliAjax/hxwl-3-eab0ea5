@@ -59,6 +59,25 @@ type HotelState = {
   lastReport: string;
 };
 
+type ObservationLog = {
+  id: string;
+  date: string;
+  seasonId: SeasonId | null;
+  seasonName: string;
+  placed: string[];
+  baseMetrics: Record<Metric, number>;
+  adjustedMetrics: Record<Metric, number>;
+  newInsectIds: string[];
+  challengeId: string;
+  challengeTitle: string;
+  challengeSuccess: boolean;
+  hotelGrade: string;
+  ecologyBalance: number;
+  visitorAttraction: number;
+  spaceUtilization: number;
+  createdAt: string;
+};
+
 type Snapshot = {
   id: string;
   name: string;
@@ -96,6 +115,7 @@ const storageKey = "hxwl-3-hotel";
 const challengeStorageKey = "hxwl-3-challenge";
 const snapshotStorageKey = "hxwl-3-snapshots";
 const seasonStorageKey = "hxwl-3-season";
+const logStorageKey = "hxwl-3-observation-logs";
 const MAX_SNAPSHOTS = 5;
 
 const challengePool: Challenge[] = [
@@ -561,6 +581,18 @@ function loadSeason(): SeasonId | null {
   } catch {
     return null;
   }
+}
+
+function loadLogs(): ObservationLog[] {
+  try {
+    return JSON.parse(localStorage.getItem(logStorageKey) || "[]") as ObservationLog[];
+  } catch {
+    return [];
+  }
+}
+
+function saveLogs(logs: ObservationLog[]): void {
+  localStorage.setItem(logStorageKey, JSON.stringify(logs));
 }
 
 function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record<Metric, number>> {
@@ -1119,6 +1151,11 @@ export default function App() {
   });
   const [layoutCandidates, setLayoutCandidates] = useState<LayoutCandidate[]>([]);
   const [hasGeneratedLayouts, setHasGeneratedLayouts] = useState(false);
+  const [logs, setLogs] = useState<ObservationLog[]>(loadLogs);
+  const [showLogPanel, setShowLogPanel] = useState(false);
+  const [logFilterInsect, setLogFilterInsect] = useState<string | null>(null);
+  const [logFilterSeason, setLogFilterSeason] = useState<SeasonId | null>(null);
+  const [logFilterChallengeSuccess, setLogFilterChallengeSuccess] = useState<"all" | "success" | "fail">("all");
 
   const weekCalendar = useMemo(() => generateWeekCalendar(), []);
 
@@ -1170,6 +1207,10 @@ export default function App() {
   useEffect(() => {
     saveSnapshots(snapshots);
   }, [snapshots]);
+
+  useEffect(() => {
+    saveLogs(logs);
+  }, [logs]);
 
   useEffect(() => {
     const checkDate = () => {
@@ -1723,14 +1764,19 @@ export default function App() {
   }
 
   function settleDay() {
+    const today = getTodayString();
+    const effectiveMetrics = currentSeason ? adjustedMetrics : metrics;
+
     if (state.placed.length === 0) {
       let report = "旅馆空空如也，还没有放置任何材料，小昆虫们不会来访哦。";
       if (currentSeason) {
         report = `[${currentSeason.name}] ${report}`;
       }
       setState((current) => ({ ...current, lastReport: report }));
+      let challengeResultForLog = { success: false, message: "" };
       if (!challengeState.completed) {
         const result = checkChallengeCompletion(todayChallenge, metrics, 0, []);
+        challengeResultForLog = result;
         setChallengeResult(result);
         setShowChallengeResult(true);
         setChallengeState((current) => ({
@@ -1739,10 +1785,28 @@ export default function App() {
           lastResult: result.message
         }));
       }
+      const logEntry: ObservationLog = {
+        id: Date.now().toString(36),
+        date: today,
+        seasonId: currentSeasonId,
+        seasonName: currentSeason ? currentSeason.name : "默认",
+        placed: [],
+        baseMetrics: { ...metrics },
+        adjustedMetrics: { ...effectiveMetrics },
+        newInsectIds: [],
+        challengeId: todayChallenge.id,
+        challengeTitle: todayChallenge.title,
+        challengeSuccess: challengeResultForLog.success,
+        hotelGrade: hotelRating.overallGrade,
+        ecologyBalance: hotelRating.ecologyBalance,
+        visitorAttraction: hotelRating.visitorAttraction,
+        spaceUtilization: hotelRating.spaceUtilization,
+        createdAt: new Date().toLocaleString("zh-CN")
+      };
+      setLogs((prev) => [...prev, logEntry]);
       return;
     }
 
-    const effectiveMetrics = currentSeason ? adjustedMetrics : metrics;
     const matched = insects.filter((insect) => {
       const adjustedLikes = getAdjustedLikes(insect, currentSeason);
       return Object.entries(adjustedLikes).every(
@@ -1750,6 +1814,7 @@ export default function App() {
       );
     });
     const matchedIds = matched.map((insect) => insect.id);
+    const newInsectIds = matchedIds.filter((id) => !state.guests.includes(id));
     const guestIds = Array.from(new Set([...state.guests, ...matchedIds]));
     let report =
       matched.length > 0
@@ -1760,8 +1825,10 @@ export default function App() {
     }
     setState((current) => ({ ...current, guests: guestIds, lastReport: report }));
 
+    let challengeResultForLog = { success: false, message: "" };
     if (!challengeState.completed) {
       const result = checkChallengeCompletion(todayChallenge, effectiveMetrics, state.placed.length, matchedIds);
+      challengeResultForLog = result;
       setChallengeResult(result);
       setShowChallengeResult(true);
       setChallengeState((current) => ({
@@ -1769,7 +1836,29 @@ export default function App() {
         completed: result.success,
         lastResult: result.message
       }));
+    } else {
+      challengeResultForLog = { success: true, message: challengeState.lastResult || "" };
     }
+
+    const logEntry: ObservationLog = {
+      id: Date.now().toString(36),
+      date: today,
+      seasonId: currentSeasonId,
+      seasonName: currentSeason ? currentSeason.name : "默认",
+      placed: [...state.placed],
+      baseMetrics: { ...metrics },
+      adjustedMetrics: { ...effectiveMetrics },
+      newInsectIds,
+      challengeId: todayChallenge.id,
+      challengeTitle: todayChallenge.title,
+      challengeSuccess: challengeResultForLog.success,
+      hotelGrade: hotelRating.overallGrade,
+      ecologyBalance: hotelRating.ecologyBalance,
+      visitorAttraction: hotelRating.visitorAttraction,
+      spaceUtilization: hotelRating.spaceUtilization,
+      createdAt: new Date().toLocaleString("zh-CN")
+    };
+    setLogs((prev) => [...prev, logEntry]);
   }
 
   function createSnapshot() {
@@ -1867,6 +1956,7 @@ export default function App() {
           <button onClick={openLayoutLab}>🧪 布局实验室</button>
           <button onClick={() => setShowEcoCalendar(true)}>📅 生态日历</button>
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
+          <button onClick={() => setShowLogPanel(true)}>📋 观察日志</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
@@ -2932,6 +3022,279 @@ export default function App() {
                 <p>配置好参数后，点击「生成候选方案」</p>
                 <p className="empty-hint">系统将从5种材料中智能组合出3套不同策略的布局方案</p>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showLogPanel && (
+        <div className="log-overlay" onClick={() => setShowLogPanel(false)}>
+          <div className="log-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="log-header">
+              <div>
+                <p className="eyebrow">观察日志</p>
+                <h2>结算记录与趋势</h2>
+                <p className="log-progress">
+                  共 <b>{logs.length}</b> 条记录
+                </p>
+              </div>
+              <button className="log-close" onClick={() => setShowLogPanel(false)}>✕</button>
+            </div>
+
+            <div className="log-filters">
+              <div className="log-filter-group">
+                <label className="log-filter-label">🐛 昆虫</label>
+                <div className="log-filter-options">
+                  <button
+                    className={`log-filter-btn ${logFilterInsect === null ? "selected" : ""}`}
+                    onClick={() => setLogFilterInsect(null)}
+                  >
+                    全部
+                  </button>
+                  {insects.map((insect) => (
+                    <button
+                      key={insect.id}
+                      className={`log-filter-btn ${logFilterInsect === insect.id ? "selected" : ""}`}
+                      onClick={() => setLogFilterInsect(insect.id)}
+                    >
+                      {insect.icon} {insect.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="log-filter-group">
+                <label className="log-filter-label">🌤️ 季节</label>
+                <div className="log-filter-options">
+                  <button
+                    className={`log-filter-btn ${logFilterSeason === null ? "selected" : ""}`}
+                    onClick={() => setLogFilterSeason(null)}
+                  >
+                    全部
+                  </button>
+                  {seasons.map((season) => (
+                    <button
+                      key={season.id}
+                      className={`log-filter-btn season ${logFilterSeason === season.id ? "selected" : ""}`}
+                      style={logFilterSeason === season.id ? { borderColor: season.color, color: season.color } : {}}
+                      onClick={() => setLogFilterSeason(season.id)}
+                    >
+                      {season.icon} {season.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="log-filter-group">
+                <label className="log-filter-label">🏆 挑战</label>
+                <div className="log-filter-options">
+                  <button
+                    className={`log-filter-btn ${logFilterChallengeSuccess === "all" ? "selected" : ""}`}
+                    onClick={() => setLogFilterChallengeSuccess("all")}
+                  >
+                    全部
+                  </button>
+                  <button
+                    className={`log-filter-btn success ${logFilterChallengeSuccess === "success" ? "selected" : ""}`}
+                    onClick={() => setLogFilterChallengeSuccess("success")}
+                  >
+                    ✅ 成功
+                  </button>
+                  <button
+                    className={`log-filter-btn fail ${logFilterChallengeSuccess === "fail" ? "selected" : ""}`}
+                    onClick={() => setLogFilterChallengeSuccess("fail")}
+                  >
+                    ❌ 失败
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {logs.length === 0 ? (
+              <div className="log-empty">
+                <div className="log-empty-icon">📋</div>
+                <p>还没有观察日志。</p>
+                <p className="log-empty-hint">点击「结算今天」后，系统会自动记录一条观察日志。</p>
+              </div>
+            ) : (
+              <>
+                {(() => {
+                  const filtered = logs.filter((log) => {
+                    if (logFilterInsect && !log.newInsectIds.includes(logFilterInsect)) return false;
+                    if (logFilterSeason && log.seasonId !== logFilterSeason) return false;
+                    if (logFilterChallengeSuccess === "success" && !log.challengeSuccess) return false;
+                    if (logFilterChallengeSuccess === "fail" && log.challengeSuccess) return false;
+                    return true;
+                  });
+                  const trendLogs = filtered.slice(-7);
+                  return (
+                    <>
+                      {trendLogs.length >= 2 && (
+                        <div className="log-trend">
+                          <h3>📈 最近{trendLogs.length}次结算指标趋势</h3>
+                          <div className="log-trend-chart">
+                            <div className="log-trend-y-axis">
+                              <span>100</span>
+                              <span>75</span>
+                              <span>50</span>
+                              <span>25</span>
+                              <span>0</span>
+                            </div>
+                            <div className="log-trend-grid">
+                              {[25, 50, 75].map((v) => (
+                                <div key={v} className="log-trend-grid-line" style={{ bottom: `${v}%` }} />
+                              ))}
+                              <div className="log-trend-bars">
+                                {trendLogs.map((log, i) => (
+                                  <div key={log.id} className="log-trend-column">
+                                    <div className="log-trend-bars-group">
+                                      <div
+                                        className="log-trend-bar ecology"
+                                        style={{ height: `${log.ecologyBalance}%` }}
+                                        title={`生态平衡: ${log.ecologyBalance}`}
+                                      />
+                                      <div
+                                        className="log-trend-bar attraction"
+                                        style={{ height: `${log.visitorAttraction}%` }}
+                                        title={`访客吸引: ${log.visitorAttraction}`}
+                                      />
+                                      <div
+                                        className="log-trend-bar space"
+                                        style={{ height: `${log.spaceUtilization}%` }}
+                                        title={`空间利用: ${log.spaceUtilization}`}
+                                      />
+                                    </div>
+                                    <span className="log-trend-label">
+                                      {log.date.slice(5)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="log-trend-legend">
+                            <span className="log-trend-legend-item"><i className="legend-dot ecology" />生态平衡</span>
+                            <span className="log-trend-legend-item"><i className="legend-dot attraction" />访客吸引</span>
+                            <span className="log-trend-legend-item"><i className="legend-dot space" />空间利用</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="log-list">
+                        {[...filtered].reverse().map((log) => {
+                          const logSeason = log.seasonId ? seasons.find((s) => s.id === log.seasonId) : null;
+                          const logChallenge = challengePool.find((c) => c.id === log.challengeId);
+                          return (
+                            <article key={log.id} className="log-card">
+                              <div className="log-card-header">
+                                <div className="log-card-date">
+                                  <span className="log-date-value">{log.date}</span>
+                                  {logSeason && (
+                                    <span className="log-season-tag" style={{ color: logSeason.color }}>
+                                      {logSeason.icon} {logSeason.name}
+                                    </span>
+                                  )}
+                                  {!logSeason && (
+                                    <span className="log-season-tag default">🌍 默认</span>
+                                  )}
+                                </div>
+                                <div className="log-card-badges">
+                                  <span className={`log-challenge-badge ${log.challengeSuccess ? "success" : "fail"}`}>
+                                    {log.challengeSuccess ? "✅ 挑战成功" : "❌ 挑战失败"}
+                                  </span>
+                                  <span className={`log-grade-badge grade-${log.hotelGrade === "—" ? "none" : log.hotelGrade.toLowerCase()}`}>
+                                    {log.hotelGrade}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="log-card-body">
+                                <div className="log-card-section">
+                                  <h4>🧱 布局材料</h4>
+                                  <div className="log-placed-row">
+                                    {log.placed.length > 0 ? (
+                                      log.placed.map((id, i) => {
+                                        const deco = decorations.find((d) => d.id === id);
+                                        return deco ? (
+                                          <span key={i} className="log-placed-chip" style={{ background: deco.color }}>
+                                            {deco.icon}
+                                          </span>
+                                        ) : null;
+                                      })
+                                    ) : (
+                                      <span className="log-placed-empty">未放置材料</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="log-card-section">
+                                  <h4>📊 环境指标</h4>
+                                  <div className="log-metrics-row">
+                                    {(Object.keys(log.adjustedMetrics) as Metric[]).map((metric) => {
+                                      const base = log.baseMetrics[metric];
+                                      const adjusted = log.adjustedMetrics[metric];
+                                      return (
+                                        <span key={metric} className="log-metric-chip">
+                                          {metricLabels[metric]}
+                                          {base !== adjusted ? (
+                                            <><s>{base}</s>→{adjusted}</>
+                                          ) : (
+                                            <b>{adjusted}</b>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {log.newInsectIds.length > 0 && (
+                                  <div className="log-card-section">
+                                    <h4>🦋 新吸引昆虫</h4>
+                                    <div className="log-insects-row">
+                                      {log.newInsectIds.map((id) => {
+                                        const insect = insects.find((i) => i.id === id);
+                                        return insect ? (
+                                          <span key={id} className="log-insect-tag">
+                                            {insect.icon} {insect.name}
+                                          </span>
+                                        ) : null;
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="log-card-section">
+                                  <h4>🎯 挑战</h4>
+                                  <p className="log-challenge-info">
+                                    {logChallenge?.title || log.challengeTitle}
+                                  </p>
+                                </div>
+
+                                <div className="log-card-section">
+                                  <h4>⭐ 旅馆评级</h4>
+                                  <div className="log-rating-row">
+                                    <span className="log-rating-chip ecology">生态 {log.ecologyBalance}</span>
+                                    <span className="log-rating-chip attraction">吸引 {log.visitorAttraction}</span>
+                                    <span className="log-rating-chip space">空间 {log.spaceUtilization}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="log-card-footer">
+                                <span className="log-created-at">{log.createdAt}</span>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+
+                      {filtered.length === 0 && (
+                        <div className="log-no-match">
+                          <p>没有符合筛选条件的日志记录。</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </>
             )}
           </div>
         </div>
