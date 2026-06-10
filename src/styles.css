@@ -1289,14 +1289,23 @@ meter {
 }
 
 .boost-badge {
-  display: inline-block;
-  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
   border-radius: 8px;
   color: #fff;
   font-size: 0.7rem;
   font-weight: 800;
   margin-left: 4px;
   vertical-align: middle;
+  gap: 2px;
+}
+
+.boost-count {
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.92;
 }
 
 .base-value {

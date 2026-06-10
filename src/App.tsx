@@ -501,13 +501,25 @@ export default function App() {
   );
 
   const adjustedMetrics = useMemo(() => {
-    if (!currentSeason) return metrics;
-    const result = { ...metrics };
-    (Object.keys(currentSeason.metricBoosts) as Metric[]).forEach((metric) => {
-      result[metric] = (result[metric] || 0) + (currentSeason.metricBoosts[metric] || 0);
-    });
-    return result;
-  }, [metrics, currentSeason]);
+    if (!currentSeason || state.placed.length === 0) return metrics;
+    const seasonBoosts = currentSeason.metricBoosts;
+    const boosted = state.placed.reduce(
+      (total, id) => {
+        const decoration = decorations.find((item) => item.id === id);
+        if (!decoration) return total;
+        (Object.keys(total) as Metric[]).forEach((metric) => {
+          let value = decoration.metrics[metric];
+          if (value > 0 && seasonBoosts[metric] !== undefined) {
+            value += seasonBoosts[metric]!;
+          }
+          total[metric] += value;
+        });
+        return total;
+      },
+      { shade: 0, nectar: 0, shelter: 0, moisture: 0 }
+    );
+    return boosted;
+  }, [metrics, currentSeason, state.placed]);
 
   function getRelatedInsects(decoration: Decoration): { insect: Insect; matchCount: number }[] {
     return insects
@@ -540,6 +552,25 @@ export default function App() {
   }
 
   function settleDay() {
+    if (state.placed.length === 0) {
+      let report = "旅馆空空如也，还没有放置任何材料，小昆虫们不会来访哦。";
+      if (currentSeason) {
+        report = `[${currentSeason.name}] ${report}`;
+      }
+      setState((current) => ({ ...current, lastReport: report }));
+      if (!challengeState.completed) {
+        const result = checkChallengeCompletion(todayChallenge, metrics, 0, []);
+        setChallengeResult(result);
+        setShowChallengeResult(true);
+        setChallengeState((current) => ({
+          ...current,
+          completed: result.success,
+          lastResult: result.message
+        }));
+      }
+      return;
+    }
+
     const effectiveMetrics = currentSeason ? adjustedMetrics : metrics;
     const matched = insects.filter((insect) => {
       const adjustedLikes = getAdjustedLikes(insect, currentSeason);
@@ -680,7 +711,7 @@ export default function App() {
                 <span className="effect-label">环境加成：</span>
                 {currentSeason.affectedMetrics.map((m) => (
                   <span key={m} className="effect-tag boost">
-                    {metricLabels[m]} +{currentSeason.metricBoosts[m]}
+                    {metricLabels[m]} +{currentSeason.metricBoosts[m]}/格
                   </span>
                 ))}
               </div>
@@ -738,11 +769,28 @@ export default function App() {
               const base = metrics[metric];
               const adjusted = adjustedMetrics[metric];
               const boosted = currentSeason && currentSeason.affectedMetrics.includes(metric);
+              let totalBoost = 0;
+              let boostCount = 0;
+              if (boosted && currentSeason) {
+                const perCellBoost = currentSeason.metricBoosts[metric] || 0;
+                state.placed.forEach((id) => {
+                  const deco = decorations.find((d) => d.id === id);
+                  if (deco && deco.metrics[metric] > 0) {
+                    totalBoost += perCellBoost;
+                    boostCount++;
+                  }
+                });
+              }
               return (
                 <label key={metric} className={boosted ? "boosted" : ""}>
                   <span>
                     {metricLabels[metric]}
-                    {boosted && <span className="boost-badge" style={{ background: currentSeason?.color }}>+{currentSeason?.metricBoosts[metric]}</span>}
+                    {boosted && totalBoost > 0 && (
+                      <span className="boost-badge" style={{ background: currentSeason?.color }}>
+                        +{totalBoost}
+                        {boostCount > 1 && <i className="boost-count">×{boostCount}格</i>}
+                      </span>
+                    )}
                   </span>
                   <meter min={0} max={12} value={adjusted} />
                   <b>
@@ -1086,7 +1134,7 @@ export default function App() {
                         <div className="season-card-tags">
                           {season.affectedMetrics.map((m) => (
                             <span key={m} className="effect-tag boost">
-                              {metricLabels[m]} +{season.metricBoosts[m]}
+                              {metricLabels[m]} +{season.metricBoosts[m]}/格
                             </span>
                           ))}
                         </div>
