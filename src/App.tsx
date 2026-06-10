@@ -2,6 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 
 type Metric = "shade" | "nectar" | "shelter" | "moisture";
 
+type SeasonId = "spring" | "summer" | "autumn" | "winter";
+
+type Season = {
+  id: SeasonId;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+  metricBoosts: Partial<Record<Metric, number>>;
+  insectThresholdAdjustments: Record<string, Partial<Record<Metric, number>>>;
+  affectedMetrics: Metric[];
+  affectedInsects: string[];
+};
+
 type Decoration = {
   id: string;
   name: string;
@@ -58,6 +72,7 @@ type Snapshot = {
 const storageKey = "hxwl-3-hotel";
 const challengeStorageKey = "hxwl-3-challenge";
 const snapshotStorageKey = "hxwl-3-snapshots";
+const seasonStorageKey = "hxwl-3-season";
 const MAX_SNAPSHOTS = 5;
 
 const challengePool: Challenge[] = [
@@ -202,6 +217,77 @@ const metricLabels: Record<Metric, string> = {
   moisture: "湿润"
 };
 
+const seasons: Season[] = [
+  {
+    id: "spring",
+    name: "春季",
+    icon: "🌱",
+    color: "#7fb77e",
+    description: "万物复苏，花蜜开始涌现，蜜蜂和蝴蝶更加活跃。",
+    metricBoosts: { nectar: 1, moisture: 1 },
+    insectThresholdAdjustments: {
+      bee: { nectar: -1, shelter: -1 },
+      butterfly: { nectar: -1, shade: -1 },
+      ladybird: { shade: 1, shelter: 1 },
+      firefly: { moisture: 1, shade: 1 },
+      beetle: { shelter: 1 }
+    },
+    affectedMetrics: ["nectar", "moisture"],
+    affectedInsects: ["bee", "butterfly"]
+  },
+  {
+    id: "summer",
+    name: "夏季",
+    icon: "☀️",
+    color: "#f9b208",
+    description: "烈日炎炎，遮阴和湿润变得珍贵，萤火虫在夏夜闪烁。",
+    metricBoosts: { shade: 1, shelter: 1 },
+    insectThresholdAdjustments: {
+      firefly: { moisture: -1, shade: -1 },
+      ladybird: { shade: -1, shelter: -1 },
+      bee: { nectar: 1, shelter: 1 },
+      butterfly: { nectar: 1, shade: 1 },
+      beetle: { shelter: 1 }
+    },
+    affectedMetrics: ["shade", "shelter"],
+    affectedInsects: ["firefly", "ladybird"]
+  },
+  {
+    id: "autumn",
+    name: "秋季",
+    icon: "🍂",
+    color: "#d97706",
+    description: "落叶纷飞，甲虫寻找过冬的藏身处，瓢虫也在寻觅温暖角落。",
+    metricBoosts: { shelter: 2, shade: 1 },
+    insectThresholdAdjustments: {
+      beetle: { shelter: -2 },
+      ladybird: { shelter: -1, shade: -1 },
+      bee: { nectar: 1, shelter: 1 },
+      butterfly: { nectar: 1 },
+      firefly: { moisture: 1, shade: 1 }
+    },
+    affectedMetrics: ["shelter", "shade"],
+    affectedInsects: ["beetle", "ladybird"]
+  },
+  {
+    id: "winter",
+    name: "冬季",
+    icon: "❄️",
+    color: "#60a5fa",
+    description: "寒风凛冽，只有最坚强的昆虫才会冒险外出，藏身至关重要。",
+    metricBoosts: { shelter: 2 },
+    insectThresholdAdjustments: {
+      beetle: { shelter: -1 },
+      bee: { nectar: 2, shelter: 2 },
+      butterfly: { nectar: 2, shade: 2 },
+      ladybird: { shade: 2, shelter: 2 },
+      firefly: { moisture: 2, shade: 2 }
+    },
+    affectedMetrics: ["shelter"],
+    affectedInsects: ["beetle"]
+  }
+];
+
 const decorations: Decoration[] = [
   { id: "twig", name: "空心树枝", icon: "╎", color: "#9c6b43", metrics: { shade: 1, nectar: 0, shelter: 3, moisture: 0 } },
   { id: "leaf", name: "阔叶伞", icon: "◒", color: "#5aa06a", metrics: { shade: 3, nectar: 0, shelter: 1, moisture: 1 } },
@@ -316,9 +402,34 @@ function checkChallengeCompletion(
   }
 }
 
+function loadSeason(): SeasonId | null {
+  try {
+    const saved = localStorage.getItem(seasonStorageKey);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as SeasonId;
+    if (seasons.some((s) => s.id === parsed)) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record<Metric, number>> {
+  if (!season) return insect.likes;
+  const adjustments = season.insectThresholdAdjustments[insect.id] || {};
+  const result: Partial<Record<Metric, number>> = {};
+  (Object.keys(insect.likes) as Metric[]).forEach((metric) => {
+    const base = insect.likes[metric] || 0;
+    const adj = adjustments[metric] || 0;
+    result[metric] = Math.max(0, base + adj);
+  });
+  return result;
+}
+
 export default function App() {
   const [state, setState] = useState<HotelState>(loadState);
   const [challengeState, setChallengeState] = useState<ChallengeState>(loadChallengeState);
+  const [currentSeasonId, setCurrentSeasonId] = useState<SeasonId | null>(loadSeason);
   const [showEncyclopedia, setShowEncyclopedia] = useState(false);
   const [showChallengeResult, setShowChallengeResult] = useState(false);
   const [challengeResult, setChallengeResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -327,6 +438,12 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const [snapshotName, setSnapshotName] = useState("");
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
+  const [showSeasonPanel, setShowSeasonPanel] = useState(false);
+
+  const currentSeason = useMemo(
+    () => (currentSeasonId ? seasons.find((s) => s.id === currentSeasonId) || null : null),
+    [currentSeasonId]
+  );
 
   const todayChallenge = useMemo(
     () => challengePool.find((c) => c.id === challengeState.currentChallengeId) || challengePool[0],
@@ -340,6 +457,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(challengeStorageKey, JSON.stringify(challengeState));
   }, [challengeState]);
+
+  useEffect(() => {
+    localStorage.setItem(seasonStorageKey, JSON.stringify(currentSeasonId));
+  }, [currentSeasonId]);
 
   useEffect(() => {
     saveSnapshots(snapshots);
@@ -379,6 +500,15 @@ export default function App() {
     [state.placed]
   );
 
+  const adjustedMetrics = useMemo(() => {
+    if (!currentSeason) return metrics;
+    const result = { ...metrics };
+    (Object.keys(currentSeason.metricBoosts) as Metric[]).forEach((metric) => {
+      result[metric] = (result[metric] || 0) + (currentSeason.metricBoosts[metric] || 0);
+    });
+    return result;
+  }, [metrics, currentSeason]);
+
   function getRelatedInsects(decoration: Decoration): { insect: Insect; matchCount: number }[] {
     return insects
       .map((insect) => {
@@ -410,19 +540,26 @@ export default function App() {
   }
 
   function settleDay() {
-    const matched = insects.filter((insect) =>
-      Object.entries(insect.likes).every(([metric, value]) => metrics[metric as Metric] >= Number(value))
-    );
+    const effectiveMetrics = currentSeason ? adjustedMetrics : metrics;
+    const matched = insects.filter((insect) => {
+      const adjustedLikes = getAdjustedLikes(insect, currentSeason);
+      return Object.entries(adjustedLikes).every(
+        ([metric, value]) => effectiveMetrics[metric as Metric] >= Number(value)
+      );
+    });
     const matchedIds = matched.map((insect) => insect.id);
     const guestIds = Array.from(new Set([...state.guests, ...matchedIds]));
-    const report =
+    let report =
       matched.length > 0
         ? `今天有${matched.map((insect) => insect.name).join("、")}注意到了旅馆。`
         : "今天环境还不够有吸引力，试着增加花蜜、湿润或藏身处。";
+    if (currentSeason) {
+      report = `[${currentSeason.name}] ${report}`;
+    }
     setState((current) => ({ ...current, guests: guestIds, lastReport: report }));
 
     if (!challengeState.completed) {
-      const result = checkChallengeCompletion(todayChallenge, metrics, state.placed.length, matchedIds);
+      const result = checkChallengeCompletion(todayChallenge, effectiveMetrics, state.placed.length, matchedIds);
       setChallengeResult(result);
       setShowChallengeResult(true);
       setChallengeState((current) => ({
@@ -491,6 +628,13 @@ export default function App() {
           <h1>给小客人搭一间好住处</h1>
         </div>
         <div className="actions">
+          <button
+            className={`season-btn ${currentSeason ? "active" : ""}`}
+            style={currentSeason ? { borderColor: currentSeason.color, color: currentSeason.color } : {}}
+            onClick={() => setShowSeasonPanel(true)}
+          >
+            {currentSeason ? `${currentSeason.icon} ${currentSeason.name}` : "🌍 选择季节"}
+          </button>
           <button onClick={() => setShowEncyclopedia(true)}>昆虫图鉴</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
@@ -518,6 +662,46 @@ export default function App() {
           </div>
         </div>
       </section>
+
+      {currentSeason && (
+        <section
+          className="season-banner"
+          style={{ background: `linear-gradient(135deg, ${currentSeason.color}22, ${currentSeason.color}08)`, borderColor: currentSeason.color }}
+        >
+          <div className="season-icon" style={{ background: currentSeason.color }}>
+            {currentSeason.icon}
+          </div>
+          <div className="season-info">
+            <p className="eyebrow">当前季节</p>
+            <h3 style={{ color: currentSeason.color }}>{currentSeason.name}</h3>
+            <p className="season-description">{currentSeason.description}</p>
+            <div className="season-effects">
+              <div className="season-effect-group">
+                <span className="effect-label">环境加成：</span>
+                {currentSeason.affectedMetrics.map((m) => (
+                  <span key={m} className="effect-tag boost">
+                    {metricLabels[m]} +{currentSeason.metricBoosts[m]}
+                  </span>
+                ))}
+              </div>
+              <div className="season-effect-group">
+                <span className="effect-label">受益昆虫：</span>
+                {currentSeason.affectedInsects.map((id) => {
+                  const insect = insects.find((i) => i.id === id);
+                  return insect ? (
+                    <span key={id} className="effect-tag insect">
+                      {insect.icon} {insect.name}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            </div>
+          </div>
+          <button className="season-change-btn" onClick={() => setShowSeasonPanel(true)}>
+            更换季节
+          </button>
+        </section>
+      )}
 
       <section className="layout">
         <div className="panel">
@@ -548,27 +732,67 @@ export default function App() {
         </div>
 
         <div className="panel">
-          <h2>环境</h2>
+          <h2>环境{currentSeason && <span className="season-hint" style={{ color: currentSeason.color }}>（{currentSeason.name}调整）</span>}</h2>
           <div className="metrics">
-            {(Object.keys(metrics) as Metric[]).map((metric) => (
-              <label key={metric}>
-                <span>{metricLabels[metric]}</span>
-                <meter min={0} max={10} value={metrics[metric]} />
-                <b>{metrics[metric]}</b>
-              </label>
-            ))}
+            {(Object.keys(adjustedMetrics) as Metric[]).map((metric) => {
+              const base = metrics[metric];
+              const adjusted = adjustedMetrics[metric];
+              const boosted = currentSeason && currentSeason.affectedMetrics.includes(metric);
+              return (
+                <label key={metric} className={boosted ? "boosted" : ""}>
+                  <span>
+                    {metricLabels[metric]}
+                    {boosted && <span className="boost-badge" style={{ background: currentSeason?.color }}>+{currentSeason?.metricBoosts[metric]}</span>}
+                  </span>
+                  <meter min={0} max={12} value={adjusted} />
+                  <b>
+                    {boosted && base !== adjusted ? (
+                      <>
+                        <s className="base-value">{base}</s>→{adjusted}
+                      </>
+                    ) : (
+                      adjusted
+                    )}
+                  </b>
+                </label>
+              );
+            })}
           </div>
           <h2>已入住</h2>
           <div className="guest-list">
-            {insects.map((insect) => (
-              <article className={state.guests.includes(insect.id) ? "active" : ""} key={insect.id}>
-                <span>{insect.icon}</span>
-                <div>
-                  <strong>{insect.name}</strong>
-                  <p>{insect.note}</p>
-                </div>
-              </article>
-            ))}
+            {insects.map((insect) => {
+              const isActive = state.guests.includes(insect.id);
+              const isFavored = currentSeason?.affectedInsects.includes(insect.id);
+              const adjustedLikes = getAdjustedLikes(insect, currentSeason);
+              return (
+                <article className={`${isActive ? "active" : ""} ${isFavored ? "favored" : ""}`} key={insect.id}>
+                  <span className="guest-icon" style={isFavored ? { boxShadow: `0 0 0 2px ${currentSeason?.color}` } : {}}>
+                    {insect.icon}
+                    {isFavored && <span className="favored-badge" style={{ background: currentSeason?.color }}>★</span>}
+                  </span>
+                  <div>
+                    <strong>
+                      {insect.name}
+                      {isFavored && <span className="favored-label" style={{ color: currentSeason?.color }}>活跃</span>}
+                    </strong>
+                    <div className="insect-likes-mini">
+                      {Object.entries(adjustedLikes).map(([metric, val]) => {
+                        const baseVal = insect.likes[metric as Metric];
+                        const changed = currentSeason && baseVal !== val;
+                        return (
+                          <span key={metric} className={`mini-like ${changed ? (val! < baseVal! ? "easier" : "harder") : ""}`}>
+                            {metricLabels[metric as Metric]}
+                            {changed && baseVal !== undefined && <s>{baseVal}</s>}
+                            <b>{val}</b>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p>{insect.note}</p>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -807,6 +1031,115 @@ export default function App() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showSeasonPanel && (
+        <div className="season-overlay" onClick={() => setShowSeasonPanel(false)}>
+          <div className="season-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="season-modal-header">
+              <div>
+                <p className="eyebrow">季节系统</p>
+                <h2>选择一个季节</h2>
+                <p className="season-modal-hint">不同季节会改变环境加成和昆虫偏好阈值。不选择则使用默认规则。</p>
+              </div>
+              <button className="season-modal-close" onClick={() => setShowSeasonPanel(false)}>✕</button>
+            </div>
+
+            <button
+              className={`season-default-option ${currentSeasonId === null ? "selected" : ""}`}
+              onClick={() => {
+                setCurrentSeasonId(null);
+              }}
+            >
+              <div className="season-default-icon">🌍</div>
+              <div className="season-default-info">
+                <strong>默认模式</strong>
+                <p>不应用任何季节调整，使用原始游戏规则。</p>
+              </div>
+              {currentSeasonId === null && <div className="season-check">✓</div>}
+            </button>
+
+            <div className="season-grid">
+              {seasons.map((season) => (
+                <button
+                  key={season.id}
+                  className={`season-card ${currentSeasonId === season.id ? "selected" : ""}`}
+                  style={{ borderColor: currentSeasonId === season.id ? season.color : "transparent" }}
+                  onClick={() => {
+                    setCurrentSeasonId(season.id);
+                  }}
+                >
+                  <div className="season-card-header" style={{ background: `linear-gradient(135deg, ${season.color}33, ${season.color}11)` }}>
+                    <div className="season-card-icon" style={{ background: season.color }}>
+                      {season.icon}
+                    </div>
+                    <div className="season-card-check" style={{ background: season.color }}>✓</div>
+                  </div>
+                  <div className="season-card-body">
+                    <h3 style={{ color: season.color }}>{season.name}</h3>
+                    <p className="season-card-desc">{season.description}</p>
+                    <div className="season-card-effects">
+                      <div className="season-card-effect-row">
+                        <span className="effect-title">环境加成：</span>
+                        <div className="season-card-tags">
+                          {season.affectedMetrics.map((m) => (
+                            <span key={m} className="effect-tag boost">
+                              {metricLabels[m]} +{season.metricBoosts[m]}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="season-card-effect-row">
+                        <span className="effect-title">受益昆虫：</span>
+                        <div className="season-card-tags">
+                          {season.affectedInsects.map((id) => {
+                            const insect = insects.find((i) => i.id === id);
+                            return insect ? (
+                              <span key={id} className="effect-tag insect">
+                                {insect.icon} {insect.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="season-card-thresholds">
+                      <p className="thresholds-title">偏好阈值调整：</p>
+                      <div className="thresholds-grid">
+                        {insects.map((insect) => {
+                          const adjustments = season.insectThresholdAdjustments[insect.id] || {};
+                          const hasChanges = Object.values(adjustments).some((v) => v !== 0);
+                          if (!hasChanges) return null;
+                          return (
+                            <div key={insect.id} className="threshold-row">
+                              <span className="threshold-insect">{insect.icon} {insect.name}</span>
+                              <div className="threshold-changes">
+                                {Object.entries(adjustments).map(([metric, val]) => {
+                                  if (val === 0) return null;
+                                  return (
+                                    <span key={metric} className={`threshold-change ${val! < 0 ? "easier" : "harder"}`}>
+                                      {metricLabels[metric as Metric]} {val! > 0 ? `+${val}` : val}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="season-modal-footer">
+              <button className="season-modal-confirm" onClick={() => setShowSeasonPanel(false)}>
+                确认选择
+              </button>
+            </div>
           </div>
         </div>
       )}
