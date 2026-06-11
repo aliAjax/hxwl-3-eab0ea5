@@ -1189,6 +1189,10 @@ meter {
     grid-template-columns: repeat(4, 1fr);
   }
 
+  .branch-material-list {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  }
+
   .branch-limit-warning {
     margin: 0 16px;
     font-size: 0.82rem;
@@ -1374,6 +1378,102 @@ meter {
 .branch-editor-actions {
   display: flex;
   gap: 10px;
+}
+
+.branch-material-chooser {
+  margin-bottom: 12px;
+}
+
+.branch-material-chooser-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #47622e;
+  margin-bottom: 6px;
+}
+
+.branch-material-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+}
+
+.branch-material-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border: 2px solid rgba(30, 50, 20, 0.1);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.branch-material-item:hover {
+  border-color: #66bb6a;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(67, 160, 71, 0.15);
+}
+
+.branch-material-item.selected {
+  border-color: #43a047;
+  background: #e8f5e9;
+  box-shadow: 0 0 0 2px rgba(67, 160, 71, 0.2);
+}
+
+.branch-material-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  font-size: 0.95rem;
+}
+
+.branch-material-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #172018;
+}
+
+.branch-material-metrics {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.branch-metric-mini {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(90, 160, 106, 0.15);
+  color: #47622e;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+.branch-grid-cell.placeable {
+  border-color: #43a047;
+  animation: placeable-pulse 1.4s ease-in-out infinite;
+}
+
+.branch-grid-cell.replaceable {
+  border-color: #f57c00;
+  animation: replaceable-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes placeable-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(67, 160, 71, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(67, 160, 71, 0); }
+}
+
+@keyframes replaceable-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 124, 0, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(245, 124, 0, 0); }
 }
 
 .branch-card {

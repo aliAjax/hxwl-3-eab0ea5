@@ -1921,6 +1921,7 @@ export default function App() {
   const [branchSeasonId, setBranchSeasonId] = useState<SeasonId | null>(null);
   const [branchTargetInsectId, setBranchTargetInsectId] = useState<string | null>(null);
   const [branchLimitWarning, setBranchLimitWarning] = useState(false);
+  const [branchSelectedMaterialId, setBranchSelectedMaterialId] = useState<string | null>(null);
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
   const [showEcoCalendar, setShowEcoCalendar] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<CalendarDayChallenge | null>(null);
@@ -2920,6 +2921,7 @@ export default function App() {
     setBranchPlaced([]);
     setBranchSeasonId(null);
     setBranchTargetInsectId(null);
+    setBranchSelectedMaterialId(null);
   }
 
   function handleBranchCellClick(index: number) {
@@ -2927,10 +2929,10 @@ export default function App() {
     setBranchPlaced((prev) => {
       const copy = [...prev];
       while (copy.length < 12) copy.push("");
-      if (copy[index]) {
+      if (branchSelectedMaterialId) {
+        copy[index] = branchSelectedMaterialId;
+      } else {
         copy[index] = "";
-      } else if (selectedMaterialId) {
-        copy[index] = selectedMaterialId;
       }
       return copy;
     });
@@ -3721,7 +3723,11 @@ export default function App() {
               <div className="branch-editor">
                 <div className="branch-editor-header">
                   <h3>🌿 分支方案编辑</h3>
-                  <span className="branch-editor-hint">调整后点击「保存分支」，不影响当前旅馆</span>
+                  <span className="branch-editor-hint">
+                    {branchSelectedMaterialId
+                      ? `已选择「${decorations.find((d) => d.id === branchSelectedMaterialId)?.name}」，点击格子放置/替换，或再次点击材料取消`
+                      : "选择材料后点击格子替换，未选择材料时点击格子可清除"}
+                  </span>
                 </div>
                 <div className="branch-editor-controls">
                   <div className="branch-editor-field">
@@ -3749,16 +3755,53 @@ export default function App() {
                     </select>
                   </div>
                 </div>
+                <div className="branch-material-chooser">
+                  <div className="branch-material-chooser-label">材料</div>
+                  <div className="branch-material-list">
+                    {decorations.map((decoration) => (
+                      <button
+                        key={decoration.id}
+                        className={`branch-material-item ${branchSelectedMaterialId === decoration.id ? "selected" : ""}`}
+                        onClick={() =>
+                          setBranchSelectedMaterialId((prev) => (prev === decoration.id ? null : decoration.id))
+                        }
+                      >
+                        <span className="branch-material-icon" style={{ background: decoration.color }}>
+                          {decoration.icon}
+                        </span>
+                        <span className="branch-material-name">{decoration.name}</span>
+                        <div className="branch-material-metrics">
+                          {(Object.keys(decoration.metrics) as Metric[]).map((m) => (
+                            <span key={m} className="branch-metric-mini" title={metricLabels[m]}>
+                              {metricLabels[m].charAt(0)}{decoration.metrics[m] > 0 ? `+${decoration.metrics[m]}` : decoration.metrics[m]}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="branch-editor-grid">
                   {Array.from({ length: 12 }, (_, i) => {
                     const deco = branchPlaced[i] ? decorations.find((d) => d.id === branchPlaced[i]) : null;
+                    const selectedDeco = branchSelectedMaterialId ? decorations.find((d) => d.id === branchSelectedMaterialId) : null;
+                    let tip = "";
+                    if (deco) {
+                      tip = branchSelectedMaterialId
+                        ? `替换为「${selectedDeco?.name}」（当前：${deco.name}）`
+                        : `${deco.name}（点击清除）`;
+                    } else {
+                      tip = branchSelectedMaterialId
+                        ? `放置「${selectedDeco?.name}」`
+                        : "请先选择材料";
+                    }
                     return (
                       <div
                         key={i}
-                        className={`branch-grid-cell ${deco ? "filled" : "empty"}`}
+                        className={`branch-grid-cell ${deco ? "filled" : "empty"} ${branchSelectedMaterialId && !deco ? "placeable" : ""} ${branchSelectedMaterialId && deco && deco.id !== branchSelectedMaterialId ? "replaceable" : ""}`}
                         style={deco ? { background: deco.color } : undefined}
                         onClick={() => handleBranchCellClick(i)}
-                        title={deco ? `${deco.name}（点击移除）` : selectedMaterialId ? `放置${decorations.find((d) => d.id === selectedMaterialId)?.name || "材料"}` : "选择材料后点击放置"}
+                        title={tip}
                       >
                         {deco ? deco.icon : i + 1}
                       </div>
