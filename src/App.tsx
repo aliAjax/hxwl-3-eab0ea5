@@ -1255,6 +1255,8 @@ type LayoutLabConfig = {
   targetInsectId: string | null;
   seasonId: SeasonId | null;
   maxCells: number;
+  lockedCells: number[];
+  basePlaced: string[];
 };
 
 function calculateMetricsForPlaced(placed: string[]): Record<Metric, number> {
@@ -1363,10 +1365,16 @@ function calculateLayoutScore(
   };
 }
 
-function generateFocusedLayout(targetInsect: Insect, season: Season | null, maxCells: number): string[] {
+function generateFocusedLayout(
+  targetInsect: Insect,
+  season: Season | null,
+  maxCells: number,
+  lockedCells: number[] = [],
+  basePlaced: string[] = []
+): string[] {
   const adjustedLikes = getAdjustedLikes(targetInsect, season);
   const requiredMetrics = Object.entries(adjustedLikes) as [Metric, number][];
-  
+
   const scoredDecos = decorations.map((deco) => {
     let score = 0;
     requiredMetrics.forEach(([metric, needed]) => {
@@ -1378,11 +1386,41 @@ function generateFocusedLayout(targetInsect: Insect, season: Season | null, maxC
   });
   scoredDecos.sort((a, b) => b.score - a.score);
 
-  const placed: string[] = [];
+  const result: string[] = [];
+  while (result.length < 12) result.push("");
+
   const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
   let cellsUsed = 0;
 
-  while (cellsUsed < maxCells) {
+  const lockedSet = new Set(lockedCells);
+  const basePlacedPadded = [...basePlaced];
+  while (basePlacedPadded.length < 12) basePlacedPadded.push("");
+
+  lockedSet.forEach((idx) => {
+    if (idx >= 0 && idx < 12) {
+      const lockedId = basePlacedPadded[idx];
+      if (lockedId) {
+        result[idx] = lockedId;
+        const deco = decorations.find((d) => d.id === lockedId);
+        if (deco) {
+          (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+            currentMetrics[m] += deco.metrics[m];
+          });
+        }
+        cellsUsed++;
+      }
+    }
+  });
+
+  const freeIndices = Array.from({ length: 12 }, (_, i) => i).filter((i) => !lockedSet.has(i));
+
+  const placedIds: string[] = [];
+  lockedSet.forEach((idx) => {
+    if (result[idx]) placedIds.push(result[idx]);
+  });
+
+  let freePointer = 0;
+  while (cellsUsed < maxCells && freePointer < freeIndices.length) {
     let bestDeco = scoredDecos[0]?.deco;
     let bestScore = -1;
 
@@ -1402,33 +1440,65 @@ function generateFocusedLayout(targetInsect: Insect, season: Season | null, maxC
 
     if (bestScore <= 0 && cellsUsed >= maxCells - 1) break;
     if (bestScore <= 0) {
-      const fallbackDeco = decorations.find((d) => !placed.includes(d.id)) || scoredDecos[0]?.deco;
+      const fallbackDeco = decorations.find((d) => !placedIds.includes(d.id)) || scoredDecos[0]?.deco;
       if (!fallbackDeco) break;
       bestDeco = fallbackDeco;
     }
 
     if (!bestDeco) break;
 
-    placed.push(bestDeco.id);
+    const targetIdx = freeIndices[freePointer];
+    result[targetIdx] = bestDeco.id;
+    placedIds.push(bestDeco.id);
     (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
       currentMetrics[m] += bestDeco!.metrics[m];
     });
     cellsUsed++;
+    freePointer++;
 
     const allMet = requiredMetrics.every(([metric, needed]) => currentMetrics[metric] >= needed);
     if (allMet && cellsUsed >= Math.min(3, maxCells * 0.5)) break;
   }
 
-  while (placed.length < 12) placed.push("");
-  return placed.slice(0, 12);
+  return result.slice(0, 12);
 }
 
-function generateBalancedLayout(season: Season | null, maxCells: number): string[] {
-  const placed: string[] = [];
+function generateBalancedLayout(
+  season: Season | null,
+  maxCells: number,
+  lockedCells: number[] = [],
+  basePlaced: string[] = []
+): string[] {
+  const result: string[] = [];
+  while (result.length < 12) result.push("");
+
   const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
   let cellsUsed = 0;
 
-  while (cellsUsed < maxCells) {
+  const lockedSet = new Set(lockedCells);
+  const basePlacedPadded = [...basePlaced];
+  while (basePlacedPadded.length < 12) basePlacedPadded.push("");
+
+  lockedSet.forEach((idx) => {
+    if (idx >= 0 && idx < 12) {
+      const lockedId = basePlacedPadded[idx];
+      if (lockedId) {
+        result[idx] = lockedId;
+        const deco = decorations.find((d) => d.id === lockedId);
+        if (deco) {
+          (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+            currentMetrics[m] += deco.metrics[m];
+          });
+        }
+        cellsUsed++;
+      }
+    }
+  });
+
+  const freeIndices = Array.from({ length: 12 }, (_, i) => i).filter((i) => !lockedSet.has(i));
+  let freePointer = 0;
+
+  while (cellsUsed < maxCells && freePointer < freeIndices.length) {
     let bestDeco = decorations[0];
     let bestScore = -1;
 
@@ -1449,38 +1519,72 @@ function generateBalancedLayout(season: Season | null, maxCells: number): string
       }
     });
 
-    placed.push(bestDeco.id);
+    const targetIdx = freeIndices[freePointer];
+    result[targetIdx] = bestDeco.id;
     (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
       currentMetrics[m] += bestDeco.metrics[m];
     });
     cellsUsed++;
+    freePointer++;
   }
 
-  while (placed.length < 12) placed.push("");
-  return placed.slice(0, 12);
+  return result.slice(0, 12);
 }
 
-function generateDiversityLayout(season: Season | null, maxCells: number): string[] {
-  const placed: string[] = [];
+function generateDiversityLayout(
+  season: Season | null,
+  maxCells: number,
+  lockedCells: number[] = [],
+  basePlaced: string[] = []
+): string[] {
+  const result: string[] = [];
+  while (result.length < 12) result.push("");
+
   const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
   let cellsUsed = 0;
+  const counts: Record<string, number> = {};
 
-  const shuffledDecos = [...decorations].sort(() => Math.random() - 0.5);
-  const initialCount = Math.min(decorations.length, maxCells);
-  for (let i = 0; i < initialCount; i++) {
-    placed.push(shuffledDecos[i].id);
-    (Object.keys(shuffledDecos[i].metrics) as Metric[]).forEach((m) => {
-      currentMetrics[m] += shuffledDecos[i].metrics[m];
+  const lockedSet = new Set(lockedCells);
+  const basePlacedPadded = [...basePlaced];
+  while (basePlacedPadded.length < 12) basePlacedPadded.push("");
+
+  lockedSet.forEach((idx) => {
+    if (idx >= 0 && idx < 12) {
+      const lockedId = basePlacedPadded[idx];
+      if (lockedId) {
+        result[idx] = lockedId;
+        const deco = decorations.find((d) => d.id === lockedId);
+        if (deco) {
+          (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+            currentMetrics[m] += deco.metrics[m];
+          });
+        }
+        counts[lockedId] = (counts[lockedId] || 0) + 1;
+        cellsUsed++;
+      }
+    }
+  });
+
+  const freeIndices = Array.from({ length: 12 }, (_, i) => i).filter((i) => !lockedSet.has(i));
+  let freePointer = 0;
+
+  const existingLockedIds = Object.keys(counts);
+  const missingDecos = decorations.filter((d) => !existingLockedIds.includes(d.id));
+  const initialFromMissing = Math.min(missingDecos.length, Math.max(0, maxCells - cellsUsed));
+  const shuffledMissing = [...missingDecos].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < initialFromMissing && freePointer < freeIndices.length; i++) {
+    const targetIdx = freeIndices[freePointer];
+    const deco = shuffledMissing[i];
+    result[targetIdx] = deco.id;
+    (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+      currentMetrics[m] += deco.metrics[m];
     });
+    counts[deco.id] = (counts[deco.id] || 0) + 1;
     cellsUsed++;
+    freePointer++;
   }
 
-  while (cellsUsed < maxCells) {
-    const counts: Record<string, number> = {};
-    placed.forEach((id) => {
-      counts[id] = (counts[id] || 0) + 1;
-    });
-
+  while (cellsUsed < maxCells && freePointer < freeIndices.length) {
     let bestDeco = decorations[0];
     let bestScore = -1;
 
@@ -1500,27 +1604,61 @@ function generateDiversityLayout(season: Season | null, maxCells: number): strin
       }
     });
 
-    placed.push(bestDeco.id);
+    const targetIdx = freeIndices[freePointer];
+    result[targetIdx] = bestDeco.id;
     (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
       currentMetrics[m] += bestDeco.metrics[m];
     });
+    counts[bestDeco.id] = (counts[bestDeco.id] || 0) + 1;
     cellsUsed++;
+    freePointer++;
   }
 
-  while (placed.length < 12) placed.push("");
-  return placed.slice(0, 12);
+  return result.slice(0, 12);
 }
 
 function generateChallengeOrientedLayout(
   challenge: Challenge,
   season: Season | null,
-  maxCells: number
+  maxCells: number,
+  lockedCells: number[] = [],
+  basePlaced: string[] = []
 ): string[] {
   const keyMetrics = getKeyMetricsForChallenge(challenge);
-  
-  const placed: string[] = [];
+
+  const result: string[] = [];
+  while (result.length < 12) result.push("");
+
   const currentMetrics = { shade: 0, nectar: 0, shelter: 0, moisture: 0 };
   let cellsUsed = 0;
+
+  const lockedSet = new Set(lockedCells);
+  const basePlacedPadded = [...basePlaced];
+  while (basePlacedPadded.length < 12) basePlacedPadded.push("");
+
+  lockedSet.forEach((idx) => {
+    if (idx >= 0 && idx < 12) {
+      const lockedId = basePlacedPadded[idx];
+      if (lockedId) {
+        result[idx] = lockedId;
+        const deco = decorations.find((d) => d.id === lockedId);
+        if (deco) {
+          (Object.keys(deco.metrics) as Metric[]).forEach((m) => {
+            currentMetrics[m] += deco.metrics[m];
+          });
+        }
+        cellsUsed++;
+      }
+    }
+  });
+
+  const freeIndices = Array.from({ length: 12 }, (_, i) => i).filter((i) => !lockedSet.has(i));
+  let freePointer = 0;
+
+  const effectiveMetrics = () => {
+    const partialPlaced = result.filter(Boolean);
+    return calculateAdjustedMetrics(partialPlaced, season);
+  };
 
   if (challenge.type === "metric_limit") {
     const targetMetric = challenge.target.metric as Metric;
@@ -1532,13 +1670,15 @@ function generateChallengeOrientedLayout(
       (a, b) => b.metrics[targetMetric] - a.metrics[targetMetric]
     );
 
-    while (cellsUsed < actualMax && currentMetrics[targetMetric] < targetValue) {
+    while (cellsUsed < actualMax && currentMetrics[targetMetric] < targetValue && freePointer < freeIndices.length) {
       const bestDeco = sortedDecos[0];
-      placed.push(bestDeco.id);
+      const targetIdx = freeIndices[freePointer];
+      result[targetIdx] = bestDeco.id;
       (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
         currentMetrics[m] += bestDeco.metrics[m];
       });
       cellsUsed++;
+      freePointer++;
     }
   } else if (challenge.type === "attract" || challenge.type === "dual_insect") {
     const insectIds = challenge.type === "attract"
@@ -1556,7 +1696,7 @@ function generateChallengeOrientedLayout(
       );
     });
 
-    while (cellsUsed < maxCells) {
+    while (cellsUsed < maxCells && freePointer < freeIndices.length) {
       let bestDeco = decorations[0];
       let bestScore = -1;
 
@@ -1571,25 +1711,26 @@ function generateChallengeOrientedLayout(
         }
       });
 
-      placed.push(bestDeco.id);
+      const targetIdx = freeIndices[freePointer];
+      result[targetIdx] = bestDeco.id;
       (Object.keys(bestDeco.metrics) as Metric[]).forEach((m) => {
         currentMetrics[m] += bestDeco.metrics[m];
       });
       cellsUsed++;
+      freePointer++;
 
-      const effectiveMetrics = calculateAdjustedMetrics(placed, season);
+      const effMetrics = effectiveMetrics();
       const allSatisfied = targetInsects.every((insect) => {
         const adjustedLikes = getAdjustedLikes(insect, season);
         return Object.entries(adjustedLikes).every(
-          ([metric, value]) => effectiveMetrics[metric as Metric] >= Number(value)
+          ([metric, value]) => effMetrics[metric as Metric] >= Number(value)
         );
       });
       if (allSatisfied && cellsUsed >= 3) break;
     }
   }
 
-  while (placed.length < 12) placed.push("");
-  return placed.slice(0, 12);
+  return result.slice(0, 12);
 }
 
 function generateLayoutCandidates(
@@ -1602,11 +1743,13 @@ function generateLayoutCandidates(
 
   const candidates: LayoutCandidate[] = [];
   const maxCells = Math.max(1, Math.min(12, config.maxCells));
+  const lockedCells = config.lockedCells || [];
+  const basePlaced = config.basePlaced || [];
 
   if (config.targetInsectId) {
     const targetInsect = insects.find((i) => i.id === config.targetInsectId);
     if (targetInsect) {
-      const focusedPlaced = generateFocusedLayout(targetInsect, season, maxCells);
+      const focusedPlaced = generateFocusedLayout(targetInsect, season, maxCells, lockedCells, basePlaced);
       const focusedMetrics = calculateMetricsForPlaced(focusedPlaced.filter(Boolean));
       const focusedAdjusted = calculateAdjustedMetrics(focusedPlaced.filter(Boolean), season);
       const focusedAttracted = getAttractedInsectIds(focusedAdjusted, season);
@@ -1642,7 +1785,7 @@ function generateLayoutCandidates(
       });
     }
   } else {
-    const diversityPlaced = generateDiversityLayout(season, maxCells);
+    const diversityPlaced = generateDiversityLayout(season, maxCells, lockedCells, basePlaced);
     const diversityMetrics = calculateMetricsForPlaced(diversityPlaced.filter(Boolean));
     const diversityAdjusted = calculateAdjustedMetrics(diversityPlaced.filter(Boolean), season);
     const diversityAttracted = getAttractedInsectIds(diversityAdjusted, season);
@@ -1678,7 +1821,7 @@ function generateLayoutCandidates(
     });
   }
 
-  const balancedPlaced = generateBalancedLayout(season, maxCells);
+  const balancedPlaced = generateBalancedLayout(season, maxCells, lockedCells, basePlaced);
   const balancedMetrics = calculateMetricsForPlaced(balancedPlaced.filter(Boolean));
   const balancedAdjusted = calculateAdjustedMetrics(balancedPlaced.filter(Boolean), season);
   const balancedAttracted = getAttractedInsectIds(balancedAdjusted, season);
@@ -1713,7 +1856,7 @@ function generateLayoutCandidates(
     challengeNote: balancedChallengeResult.message
   });
 
-  const challengePlaced = generateChallengeOrientedLayout(challenge, season, maxCells);
+  const challengePlaced = generateChallengeOrientedLayout(challenge, season, maxCells, lockedCells, basePlaced);
   const challengeMetrics = calculateMetricsForPlaced(challengePlaced.filter(Boolean));
   const challengeAdjusted = calculateAdjustedMetrics(challengePlaced.filter(Boolean), season);
   const challengeAttracted = getAttractedInsectIds(challengeAdjusted, season);
@@ -1929,7 +2072,9 @@ export default function App() {
   const [layoutLabConfig, setLayoutLabConfig] = useState<LayoutLabConfig>({
     targetInsectId: null,
     seasonId: null,
-    maxCells: 6
+    maxCells: 6,
+    lockedCells: [],
+    basePlaced: []
   });
   const [layoutCandidates, setLayoutCandidates] = useState<LayoutCandidate[]>([]);
   const [hasGeneratedLayouts, setHasGeneratedLayouts] = useState(false);
@@ -3062,13 +3207,56 @@ export default function App() {
   }
 
   function applyLayoutToHotel(candidate: LayoutCandidate) {
-    const placedClean = cleanPlacedArray([...candidate.placed]);
+    const lockedSet = new Set(layoutLabConfig.lockedCells);
+    const basePadded = [...layoutLabConfig.basePlaced];
+    while (basePadded.length < 12) basePadded.push("");
+    const merged: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      if (lockedSet.has(i) && basePadded[i]) {
+        merged.push(basePadded[i]);
+      } else {
+        merged.push(candidate.placed[i] || "");
+      }
+    }
+    const placedClean = cleanPlacedArray(merged);
     setState((current) => ({
       ...current,
       placed: placedClean,
-      lastReport: `已应用「${candidate.name}」布局方案。`
+      lastReport: `已应用「${candidate.name}」布局方案${lockedSet.size > 0 ? `（保留${lockedSet.size}个锁定格）` : ""}。`
     }));
     setShowLayoutLab(false);
+  }
+
+  function toggleLockCell(index: number) {
+    setLayoutLabConfig((prev) => {
+      const locked = new Set(prev.lockedCells);
+      if (locked.has(index)) {
+        locked.delete(index);
+      } else {
+        const basePadded = [...prev.basePlaced];
+        while (basePadded.length < 12) basePadded.push("");
+        if (basePadded[index]) {
+          locked.add(index);
+        }
+      }
+      return { ...prev, lockedCells: Array.from(locked) };
+    });
+  }
+
+  function clearAllLocks() {
+    setLayoutLabConfig((prev) => ({ ...prev, lockedCells: [] }));
+  }
+
+  function lockAllFilled() {
+    setLayoutLabConfig((prev) => {
+      const basePadded = [...prev.basePlaced];
+      while (basePadded.length < 12) basePadded.push("");
+      const locked: number[] = [];
+      basePadded.forEach((id, i) => {
+        if (id) locked.push(i);
+      });
+      return { ...prev, lockedCells: locked };
+    });
   }
 
   function openLayoutLab() {
@@ -3076,7 +3264,9 @@ export default function App() {
     setLayoutLabConfig({
       targetInsectId: null,
       seasonId: currentSeasonId,
-      maxCells: 6
+      maxCells: 6,
+      lockedCells: [],
+      basePlaced: [...state.placed]
     });
     setLayoutCandidates([]);
     setHasGeneratedLayouts(false);
@@ -3101,7 +3291,9 @@ export default function App() {
     setLayoutLabConfig({
       targetInsectId,
       seasonId: day.recommendedSeason.id,
-      maxCells
+      maxCells,
+      lockedCells: [],
+      basePlaced: [...state.placed]
     });
     
     setShowEcoCalendar(false);
@@ -3116,7 +3308,9 @@ export default function App() {
         {
           targetInsectId,
           seasonId: day.recommendedSeason.id,
-          maxCells
+          maxCells,
+          lockedCells: [],
+          basePlaced: [...state.placed]
         },
         day.challenge
       );
@@ -4812,6 +5006,65 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="config-section lock-section">
+                <div className="lock-header-row">
+                  <label className="config-label">
+                    🔒 锁定材料：<b>{layoutLabConfig.lockedCells.length}</b> 格
+                  </label>
+                  <div className="lock-actions">
+                    <button
+                      className="lock-action-btn"
+                      onClick={lockAllFilled}
+                      disabled={(() => {
+                        const base = [...layoutLabConfig.basePlaced];
+                        while (base.length < 12) base.push("");
+                        const filledCount = base.filter(Boolean).length;
+                        return filledCount === 0 || layoutLabConfig.lockedCells.length >= filledCount;
+                      })()}
+                    >
+                      全选已有
+                    </button>
+                    <button
+                      className="lock-action-btn"
+                      onClick={clearAllLocks}
+                      disabled={layoutLabConfig.lockedCells.length === 0}
+                    >
+                      清除全部
+                    </button>
+                  </div>
+                </div>
+                <p className="lock-hint">点击下方格子可锁定/解锁，锁定的材料将被保留在方案中不被调整</p>
+                <div className="mini-grid lock-grid">
+                  {(() => {
+                    const base = [...layoutLabConfig.basePlaced];
+                    while (base.length < 12) base.push("");
+                    const lockedSet = new Set(layoutLabConfig.lockedCells);
+                    return base.map((placedId, i) => {
+                      const deco = decorations.find((d) => d.id === placedId);
+                      const isLocked = lockedSet.has(i);
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => toggleLockCell(i)}
+                          className={`mini-cell ${deco ? "filled" : "empty"} ${isLocked ? "locked" : ""} ${!deco ? "disabled" : ""}`}
+                          style={deco ? { background: deco.color } : {}}
+                          title={deco ? (isLocked ? `🔒 ${deco.name}（已锁定，点击解锁）` : `${deco.name}（点击锁定）`) : "空格子，无法锁定"}
+                        >
+                          {deco && <span>{deco.icon}</span>}
+                          {isLocked && <span className="lock-badge">🔒</span>}
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+                {layoutLabConfig.lockedCells.length > 0 && (
+                  <p className="lock-count-info">
+                    已锁定 {layoutLabConfig.lockedCells.length} 个格子，剩余 {12 - layoutLabConfig.lockedCells.length} 个格子可自由调整
+                  </p>
+                )}
+              </div>
+
               <button className="generate-btn" onClick={handleGenerateLayouts}>
                 🧪 生成候选方案
               </button>
@@ -4846,21 +5099,34 @@ export default function App() {
                         </div>
 
                         <div className="candidate-preview">
-                          <p className="preview-label">12格预览</p>
+                          <p className="preview-label">
+                            12格预览
+                            {layoutLabConfig.lockedCells.length > 0 && (
+                              <span className="locked-preview-hint">
+                                （🔒 锁定 {layoutLabConfig.lockedCells.length} 格
+                              </span>
+                            )}
+                          </p>
                           <div className="mini-grid">
-                            {Array.from({ length: 12 }).map((_, i) => {
-                              const placedId = candidate.placed[i];
-                              const deco = decorations.find((d) => d.id === placedId);
-                              return (
-                                <div
-                                  key={i}
-                                  className={`mini-cell ${deco ? "filled" : "empty"}`}
-                                  style={deco ? { background: deco.color } : {}}
-                                >
-                                  {deco && <span>{deco.icon}</span>}
-                                </div>
-                              );
-                            })}
+                            {(() => {
+                              const lockedSet = new Set(layoutLabConfig.lockedCells);
+                              return Array.from({ length: 12 }).map((_, i) => {
+                                const placedId = candidate.placed[i];
+                                const deco = decorations.find((d) => d.id === placedId);
+                                const isLocked = lockedSet.has(i);
+                                return (
+                                  <div
+                                    key={i}
+                                    className={`mini-cell ${deco ? "filled" : "empty"} ${isLocked ? "locked" : ""}`}
+                                    style={deco ? { background: deco.color } : {}}
+                                    title={isLocked ? "🔒 已锁定" : ""}
+                                  >
+                                    {deco && <span>{deco.icon}</span>}
+                                    {isLocked && <span className="lock-badge">🔒</span>}
+                                  </div>
+                                );
+                              });
+                            })()}
                           </div>
                           <p className="cells-used">已用 {candidate.placed.filter(Boolean).length} 格</p>
                         </div>

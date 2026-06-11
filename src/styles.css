@@ -3985,6 +3985,126 @@ meter {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.mini-cell.locked {
+  position: relative;
+  box-shadow: 0 0 0 2.5px #d4a017, 0 2px 6px rgba(0, 0, 0, 0.15);
+  outline-offset: -2px;
+}
+
+.mini-cell.locked::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  bottom: -1px;
+  left: -1px;
+  border: 2px solid #d4a017;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.mini-cell.locked::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(212, 160, 23, 0.15), transparent 60%);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.lock-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.55rem;
+  z-index: 2;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
+.lock-grid .mini-cell {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lock-grid .mini-cell:hover:not(.disabled) {
+  transform: translateY(-2px);
+}
+
+.lock-grid .mini-cell.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.lock-grid .mini-cell.locked:hover:not(.disabled) {
+  box-shadow: 0 0 0 2.5px #a87d10, 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.lock-section {
+  display: grid;
+  gap: 10px;
+}
+
+.lock-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.lock-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lock-action-btn {
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 16px;
+  border: 1.5px solid rgba(90, 110, 50, 0.35);
+  background: rgba(255, 246, 222, 0.5);
+  color: #5e6558;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lock-action-btn:hover:not(:disabled) {
+  background: #e8d88a;
+  border-color: #a8934e;
+}
+
+.lock-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lock-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #a8a38e;
+  font-weight: 500;
+}
+
+.lock-count-info {
+  margin: 0;
+  padding: 8px 12px;
+  background: rgba(212, 160, 23, 0.1);
+  border: 1px dashed rgba(212, 160, 23, 0.5);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: #8c6d12;
+  font-weight: 600;
+  text-align: center;
+}
+
+.locked-preview-hint {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  color: #d4a017;
+  font-weight: 600;
+}
+
 .cells-used {
   margin: 8px 0 0 0;
   text-align: center;
