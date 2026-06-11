@@ -2914,6 +2914,7 @@ export default function App() {
     setBranchPlaced([]);
     setBranchSeasonId(null);
     setBranchTargetInsectId(null);
+    setBranchSelectedMaterialId(null);
   }
 
   function cancelBranchEdits() {
