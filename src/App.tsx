@@ -1634,6 +1634,7 @@ function generateLayoutCandidates(
 }
 
 type DragSource = { type: "material"; id: string } | { type: "cell"; index: number } | null;
+type FillMode = "auto" | "select";
 
 export default function App() {
   const [state, setState] = useState<HotelState>(loadState);
@@ -1681,6 +1682,8 @@ export default function App() {
   const [dragSource, setDragSource] = useState<DragSource>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [fillMode, setFillMode] = useState<FillMode>("auto");
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
   const touchDragRef = useRef<{
     active: boolean;
     source: DragSource;
@@ -1730,6 +1733,25 @@ export default function App() {
   useEffect(() => {
     saveLogs(logs);
   }, [logs]);
+
+  useEffect(() => {
+    if (fillMode !== "select" || !selectedMaterialId) return;
+
+    function handleGlobalClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".deco-list") && !target.closest(".grid")) {
+        setSelectedMaterialId(null);
+      }
+    }
+
+    setTimeout(() => {
+      document.addEventListener("click", handleGlobalClick);
+    }, 0);
+
+    return () => {
+      document.removeEventListener("click", handleGlobalClick);
+    };
+  }, [fillMode, selectedMaterialId]);
 
   useEffect(() => {
     const checkDate = () => {
@@ -2258,23 +2280,41 @@ export default function App() {
     setDragOverIndex(null);
   }
 
-  function addDecoration(id: string) {
+  function handleMaterialClick(id: string) {
     const decoration = decorations.find((item) => item.id === id);
     if (decoration) {
       setSelectedDecoration(decoration);
       setShowMaterialDrawer(true);
     }
-    setState((current) => {
-      const newPlaced = [...current.placed];
-      while (newPlaced.length < 12) {
-        newPlaced.push("");
-      }
-      const firstEmptyIndex = newPlaced.findIndex((val) => !val || !decorations.find((d) => d.id === val));
-      if (firstEmptyIndex === -1) return current;
-      newPlaced[firstEmptyIndex] = id;
-      const cleanedPlaced = cleanPlacedArray(newPlaced);
-      return { ...current, placed: cleanedPlaced };
-    });
+
+    if (fillMode === "auto") {
+      setState((current) => {
+        const newPlaced = [...current.placed];
+        while (newPlaced.length < 12) {
+          newPlaced.push("");
+        }
+        const firstEmptyIndex = newPlaced.findIndex((val) => !val || !decorations.find((d) => d.id === val));
+        if (firstEmptyIndex === -1) return current;
+        newPlaced[firstEmptyIndex] = id;
+        const cleanedPlaced = cleanPlacedArray(newPlaced);
+        return { ...current, placed: cleanedPlaced };
+      });
+    } else {
+      setSelectedMaterialId((prev) => (prev === id ? null : id));
+    }
+  }
+
+  function handleCellClick(index: number) {
+    if (fillMode === "select" && selectedMaterialId) {
+      placeMaterialAt(selectedMaterialId, index);
+      setSelectedMaterialId(null);
+    } else {
+      removeMaterial(index);
+    }
+  }
+
+  function clearSelection() {
+    setSelectedMaterialId(null);
   }
 
   function closeMaterialDrawer() {
@@ -2598,13 +2638,14 @@ export default function App() {
             {decorations.map((decoration) => (
               <button
                 key={decoration.id}
-                onClick={() => addDecoration(decoration.id)}
+                onClick={() => handleMaterialClick(decoration.id)}
                 draggable
                 onDragStart={(e) => handleMaterialDragStart(e, decoration.id)}
                 onDragEnd={handleDragEnd}
                 onTouchStart={(e) => handleMaterialTouchStart(e, decoration.id)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
+                className={selectedMaterialId === decoration.id ? "material-selected" : ""}
               >
                 <span style={{ background: decoration.color }}>{decoration.icon}</span>
                 <strong>{decoration.name}</strong>
@@ -2614,9 +2655,30 @@ export default function App() {
         </div>
 
         <div className="panel hotel-board">
-          <h2>旅馆格</h2>
+          <div className="hotel-board-header">
+            <h2>旅馆格</h2>
+            <div className="fill-mode-toggle">
+              <button
+                className={fillMode === "auto" ? "active" : ""}
+                onClick={() => {
+                  setFillMode("auto");
+                  setSelectedMaterialId(null);
+                }}
+                title="点击材料自动放入第一个空位"
+              >
+                自动填充
+              </button>
+              <button
+                className={fillMode === "select" ? "active" : ""}
+                onClick={() => setFillMode("select")}
+                title="点击材料后选择目标格子"
+              >
+                选择格子
+              </button>
+            </div>
+          </div>
           <div
-            className={`grid ${isDragging ? "dragging-active" : ""}`}
+            className={`grid ${isDragging ? "dragging-active" : ""} ${fillMode === "select" && selectedMaterialId ? "select-mode-active" : ""}`}
             ref={gridRef}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
@@ -2625,6 +2687,7 @@ export default function App() {
               const placed = decorations.find((item) => item.id === state.placed[index]);
               const isDragOver = dragOverIndex === index;
               const isDragSource = dragSource?.type === "cell" && dragSource.index === index;
+              const isPlaceable = fillMode === "select" && selectedMaterialId && !placed;
               return (
                 <button
                   key={index}
@@ -2632,7 +2695,7 @@ export default function App() {
                     cellRefs.current[index] = el;
                   }}
                   draggable={!!placed}
-                  onClick={() => removeMaterial(index)}
+                  onClick={() => handleCellClick(index)}
                   onDragStart={(e) => handleCellDragStart(e, index)}
                   onDragOver={(e) => handleCellDragOver(e, index)}
                   onDragLeave={handleCellDragLeave}
@@ -2642,7 +2705,8 @@ export default function App() {
                   className={[
                     isDragOver ? "drag-over" : "",
                     isDragSource ? "drag-source" : "",
-                    placed ? "has-material" : "empty"
+                    placed ? "has-material" : "empty",
+                    isPlaceable ? "placeable" : ""
                   ].join(" ").trim()}
                 >
                   {placed && <span style={{ background: placed.color }}>{placed.icon}</span>}
@@ -2650,6 +2714,11 @@ export default function App() {
               );
             })}
           </div>
+          {fillMode === "select" && selectedMaterialId && (
+            <p className="select-mode-hint">
+              已选择「{decorations.find((d) => d.id === selectedMaterialId)?.name}」，点击空格子放置，或再次点击材料取消
+            </p>
+          )}
           <p className="report">{state.lastReport}</p>
         </div>
 

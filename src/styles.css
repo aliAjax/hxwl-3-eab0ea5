@@ -2201,6 +2201,79 @@ meter {
   }
 }
 
+.hotel-board-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.hotel-board-header h2 {
+  margin: 0;
+}
+
+.fill-mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: #e8dfc4;
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.fill-mode-toggle button {
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #6b6246;
+  transition: all 0.15s ease;
+}
+
+.fill-mode-toggle button.active {
+  background: #fff8e9;
+  color: #2e3a20;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.deco-list button.material-selected {
+  background: #e1f1d4;
+  box-shadow: 0 0 0 3px rgba(90, 160, 106, 0.4), 0 4px 12px rgba(90, 160, 106, 0.2);
+  transform: translateY(-2px);
+}
+
+.grid button.placeable {
+  border-color: #5aa06a;
+  border-style: solid;
+  background: rgba(90, 160, 106, 0.12);
+  animation: placeablePulse 1.2s ease-in-out infinite alternate;
+}
+
+.grid.select-mode-active button:not(.placeable):not(.drag-over):not(.drag-source) {
+  opacity: 0.5;
+}
+
+@keyframes placeablePulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(90, 160, 106, 0.3);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(90, 160, 106, 0.1);
+  }
+}
+
+.select-mode-hint {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: #e1f1d4;
+  border-radius: 8px;
+  color: #2e5a2e;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .eco-calendar-overlay {
   position: fixed;
   top: 0;
