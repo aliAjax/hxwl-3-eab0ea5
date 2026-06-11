@@ -89,6 +89,10 @@ type Snapshot = {
   metrics: Record<Metric, number>;
   lastReport: string;
   createdAt: string;
+  branchSourceId?: string;
+  branchSourceName?: string;
+  seasonId?: SeasonId | null;
+  targetInsectId?: string | null;
 };
 
 type SuggestionItem = {
@@ -1912,6 +1916,11 @@ export default function App() {
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
   const [comparingSnapshotId, setComparingSnapshotId] = useState<string | null>(null);
   const [compareResult, setCompareResult] = useState<SnapshotCompareResult | null>(null);
+  const [branchEditingId, setBranchEditingId] = useState<string | null>(null);
+  const [branchPlaced, setBranchPlaced] = useState<string[]>([]);
+  const [branchSeasonId, setBranchSeasonId] = useState<SeasonId | null>(null);
+  const [branchTargetInsectId, setBranchTargetInsectId] = useState<string | null>(null);
+  const [branchLimitWarning, setBranchLimitWarning] = useState(false);
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
   const [showEcoCalendar, setShowEcoCalendar] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<CalendarDayChallenge | null>(null);
@@ -2850,6 +2859,83 @@ export default function App() {
     setCompareResult(null);
   }
 
+  function createBranch(sourceSnapshot: Snapshot) {
+    if (snapshots.length >= MAX_SNAPSHOTS) {
+      setBranchLimitWarning(true);
+      return;
+    }
+    const branchName = `${sourceSnapshot.name} 分支`;
+    const newSnapshot: Snapshot = {
+      id: Date.now().toString(36),
+      name: branchName,
+      placed: [...sourceSnapshot.placed],
+      guests: [...sourceSnapshot.guests],
+      metrics: { ...sourceSnapshot.metrics },
+      lastReport: sourceSnapshot.lastReport,
+      createdAt: new Date().toLocaleString("zh-CN"),
+      branchSourceId: sourceSnapshot.id,
+      branchSourceName: sourceSnapshot.name,
+      seasonId: sourceSnapshot.seasonId ?? currentSeasonId,
+      targetInsectId: sourceSnapshot.targetInsectId ?? null
+    };
+    setSnapshots((prev) => [...prev, newSnapshot]);
+    setBranchEditingId(newSnapshot.id);
+    setBranchPlaced([...newSnapshot.placed]);
+    setBranchSeasonId(newSnapshot.seasonId ?? null);
+    setBranchTargetInsectId(newSnapshot.targetInsectId ?? null);
+    setBranchLimitWarning(false);
+  }
+
+  function saveBranchEdits() {
+    if (!branchEditingId) return;
+    const branchSeason = branchSeasonId ? seasons.find((s) => s.id === branchSeasonId) || null : null;
+    const cleanPlaced = branchPlaced.filter(Boolean);
+    const baseMetrics = calculateMetricsForPlaced(cleanPlaced);
+    const adjustedMetrics = branchSeason
+      ? calculateAdjustedMetrics(cleanPlaced, branchSeason)
+      : baseMetrics;
+    const attractedIds = getAttractedInsectIds(adjustedMetrics, branchSeason);
+    setSnapshots((prev) =>
+      prev.map((s) =>
+        s.id === branchEditingId
+          ? {
+              ...s,
+              placed: [...branchPlaced],
+              metrics: { ...adjustedMetrics },
+              guests: [...attractedIds],
+              seasonId: branchSeasonId,
+              targetInsectId: branchTargetInsectId
+            }
+          : s
+      )
+    );
+    setBranchEditingId(null);
+    setBranchPlaced([]);
+    setBranchSeasonId(null);
+    setBranchTargetInsectId(null);
+  }
+
+  function cancelBranchEdits() {
+    setBranchEditingId(null);
+    setBranchPlaced([]);
+    setBranchSeasonId(null);
+    setBranchTargetInsectId(null);
+  }
+
+  function handleBranchCellClick(index: number) {
+    if (!branchEditingId) return;
+    setBranchPlaced((prev) => {
+      const copy = [...prev];
+      while (copy.length < 12) copy.push("");
+      if (copy[index]) {
+        copy[index] = "";
+      } else if (selectedMaterialId) {
+        copy[index] = selectedMaterialId;
+      }
+      return copy;
+    });
+  }
+
   function openCreateChallengeForm() {
     setEditingCustomChallenge(null);
     setNewChallengeType("attract");
@@ -3623,6 +3709,90 @@ export default function App() {
               </button>
             </div>
 
+            {branchLimitWarning && (
+              <div className="branch-limit-warning">
+                <span className="branch-limit-warning-icon">⚠️</span>
+                <span>已达到 {MAX_SNAPSHOTS} 个快照上限，请先删除一个快照再创建分支。</span>
+                <button className="branch-limit-warning-close" onClick={() => setBranchLimitWarning(false)}>✕</button>
+              </div>
+            )}
+
+            {branchEditingId && (
+              <div className="branch-editor">
+                <div className="branch-editor-header">
+                  <h3>🌿 分支方案编辑</h3>
+                  <span className="branch-editor-hint">调整后点击「保存分支」，不影响当前旅馆</span>
+                </div>
+                <div className="branch-editor-controls">
+                  <div className="branch-editor-field">
+                    <label>季节</label>
+                    <select
+                      value={branchSeasonId || ""}
+                      onChange={(e) => setBranchSeasonId((e.target.value || null) as SeasonId | null)}
+                    >
+                      <option value="">默认</option>
+                      {seasons.map((s) => (
+                        <option key={s.id} value={s.id}>{s.icon} {s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="branch-editor-field">
+                    <label>目标昆虫</label>
+                    <select
+                      value={branchTargetInsectId || ""}
+                      onChange={(e) => setBranchTargetInsectId(e.target.value || null)}
+                    >
+                      <option value="">无</option>
+                      {insects.map((insect) => (
+                        <option key={insect.id} value={insect.id}>{insect.icon} {insect.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="branch-editor-grid">
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const deco = branchPlaced[i] ? decorations.find((d) => d.id === branchPlaced[i]) : null;
+                    return (
+                      <div
+                        key={i}
+                        className={`branch-grid-cell ${deco ? "filled" : "empty"}`}
+                        style={deco ? { background: deco.color } : undefined}
+                        onClick={() => handleBranchCellClick(i)}
+                        title={deco ? `${deco.name}（点击移除）` : selectedMaterialId ? `放置${decorations.find((d) => d.id === selectedMaterialId)?.name || "材料"}` : "选择材料后点击放置"}
+                      >
+                        {deco ? deco.icon : i + 1}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="branch-editor-metrics">
+                  {(Object.keys(
+                    (() => {
+                      const bp = branchPlaced.filter(Boolean);
+                      const bs = branchSeasonId ? seasons.find((s) => s.id === branchSeasonId) || null : null;
+                      return bs ? calculateAdjustedMetrics(bp, bs) : calculateMetricsForPlaced(bp);
+                    })()
+                  ) as Metric[]).map((m) => {
+                    const val = (() => {
+                      const bp = branchPlaced.filter(Boolean);
+                      const bs = branchSeasonId ? seasons.find((s) => s.id === branchSeasonId) || null : null;
+                      const metrics = bs ? calculateAdjustedMetrics(bp, bs) : calculateMetricsForPlaced(bp);
+                      return metrics[m];
+                    })();
+                    return (
+                      <span key={m} className="snapshot-metric-chip">
+                        {metricLabels[m]} {val}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="branch-editor-actions">
+                  <button className="snapshot-restore-btn" onClick={saveBranchEdits}>保存分支</button>
+                  <button className="snapshot-delete-btn" onClick={cancelBranchEdits}>取消</button>
+                </div>
+              </div>
+            )}
+
             {compareResult && (
               <div className="snapshot-compare-result">
                 <div className="snapshot-compare-header">
@@ -3800,16 +3970,76 @@ export default function App() {
                     .map((gid) => insects.find((i) => i.id === gid)?.name)
                     .filter(Boolean) as string[];
                   const isComparing = comparingSnapshotId === snapshot.id;
+                  const sourceSnapshot = snapshot.branchSourceId
+                    ? snapshots.find((s) => s.id === snapshot.branchSourceId)
+                    : null;
+                  let branchScoreDiff: { ecology: number; attraction: number; space: number } | null = null;
+                  let branchGuestDiff: { added: string[]; removed: string[] } | null = null;
+                  if (sourceSnapshot) {
+                    const sourceSeason = sourceSnapshot.seasonId ? seasons.find((s) => s.id === sourceSnapshot.seasonId) || null : null;
+                    const branchSeason = snapshot.seasonId ? seasons.find((s) => s.id === snapshot.seasonId) || null : null;
+                    const sourceRating = calculateSnapshotRating(sourceSnapshot, sourceSeason);
+                    const branchRating = calculateSnapshotRating(snapshot, branchSeason);
+                    branchScoreDiff = {
+                      ecology: branchRating.ecologyBalance - sourceRating.ecologyBalance,
+                      attraction: branchRating.visitorAttraction - sourceRating.visitorAttraction,
+                      space: branchRating.spaceUtilization - sourceRating.spaceUtilization
+                    };
+                    const addedGuests = snapshot.guests.filter((g) => !sourceSnapshot.guests.includes(g));
+                    const removedGuests = sourceSnapshot.guests.filter((g) => !snapshot.guests.includes(g));
+                    branchGuestDiff = { added: addedGuests, removed: removedGuests };
+                  }
+                  const branchSeasonObj = snapshot.seasonId ? seasons.find((s) => s.id === snapshot.seasonId) : null;
+                  const branchTargetInsect = snapshot.targetInsectId ? insects.find((i) => i.id === snapshot.targetInsectId) : null;
                   return (
-                    <article key={snapshot.id} className={`snapshot-card ${isComparing ? "comparing" : ""}`}>
+                    <article key={snapshot.id} className={`snapshot-card ${isComparing ? "comparing" : ""} ${snapshot.branchSourceId ? "branch-card" : ""}`}>
                       <div className="snapshot-card-info">
                         <div className="snapshot-card-name">
                           <strong>{snapshot.name}</strong>
                           <span className="snapshot-card-time">{snapshot.createdAt}</span>
                         </div>
+                        {snapshot.branchSourceId && (
+                          <div className="branch-source-info">
+                            <span className="branch-source-label">🌿 源自</span>
+                            <span className="branch-source-name">{snapshot.branchSourceName || "未知快照"}</span>
+                            {branchSeasonObj && (
+                              <span className="branch-tag season-tag">{branchSeasonObj.icon} {branchSeasonObj.name}</span>
+                            )}
+                            {branchTargetInsect && (
+                              <span className="branch-tag insect-tag">🎯 {branchTargetInsect.name}</span>
+                            )}
+                          </div>
+                        )}
+                        {branchScoreDiff && (
+                          <div className="branch-score-diff">
+                            <span className={`branch-delta ${branchScoreDiff.ecology > 0 ? "positive" : branchScoreDiff.ecology < 0 ? "negative" : "neutral"}`}>
+                              生态{branchScoreDiff.ecology > 0 ? "+" : ""}{branchScoreDiff.ecology}
+                            </span>
+                            <span className={`branch-delta ${branchScoreDiff.attraction > 0 ? "positive" : branchScoreDiff.attraction < 0 ? "negative" : "neutral"}`}>
+                              访客{branchScoreDiff.attraction > 0 ? "+" : ""}{branchScoreDiff.attraction}
+                            </span>
+                            <span className={`branch-delta ${branchScoreDiff.space > 0 ? "positive" : branchScoreDiff.space < 0 ? "negative" : "neutral"}`}>
+                              空间{branchScoreDiff.space > 0 ? "+" : ""}{branchScoreDiff.space}
+                            </span>
+                          </div>
+                        )}
+                        {branchGuestDiff && (branchGuestDiff.added.length > 0 || branchGuestDiff.removed.length > 0) && (
+                          <div className="branch-guest-diff">
+                            {branchGuestDiff.added.length > 0 && (
+                              <span className="branch-guest-added">
+                                +{branchGuestDiff.added.map((id) => insects.find((i) => i.id === id)?.name).filter(Boolean).join("、")}
+                              </span>
+                            )}
+                            {branchGuestDiff.removed.length > 0 && (
+                              <span className="branch-guest-removed">
+                                -{branchGuestDiff.removed.map((id) => insects.find((i) => i.id === id)?.name).filter(Boolean).join("、")}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="snapshot-card-detail">
                           <span className="snapshot-tag layout-tag">
-                            布局 {snapshot.placed.length}格
+                            布局 {snapshot.placed.filter(Boolean).length}格
                           </span>
                           {guestNames.length > 0 && (
                             <span className="snapshot-tag guest-tag">
@@ -3826,6 +4056,13 @@ export default function App() {
                         </div>
                       </div>
                       <div className="snapshot-card-actions">
+                        <button
+                          className="snapshot-branch-btn"
+                          onClick={() => createBranch(snapshot)}
+                          disabled={branchEditingId !== null}
+                        >
+                          分支
+                        </button>
                         <button
                           className="snapshot-compare-btn"
                           onClick={() => startComparison(snapshot)}
