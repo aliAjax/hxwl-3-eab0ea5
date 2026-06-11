@@ -1221,6 +1221,111 @@ function saveLogNotes(notes: Record<string, string>): void {
   localStorage.setItem(logNoteStorageKey, JSON.stringify(notes));
 }
 
+type GradeKey = "S" | "A" | "B" | "C" | "D";
+const GRADE_ORDER: GradeKey[] = ["D", "C", "B", "A", "S"];
+const GRADE_VALUES: Record<GradeKey, number> = { D: 1, C: 2, B: 3, A: 4, S: 5 };
+
+function normalizeGrade(raw: string | undefined | null): GradeKey | null {
+  if (!raw) return null;
+  const upper = raw.trim().toUpperCase();
+  return (GRADE_ORDER as string[]).includes(upper) ? (upper as GradeKey) : null;
+}
+
+function hasCompleteMetrics(log: ObservationLog): boolean {
+  return (
+    typeof log.ecologyBalance === "number" &&
+    typeof log.visitorAttraction === "number" &&
+    typeof log.spaceUtilization === "number" &&
+    log.hotelGrade !== undefined &&
+    log.hotelGrade !== null &&
+    log.hotelGrade !== ""
+  );
+}
+
+type TrendMetrics = {
+  ecology: number[];
+  attraction: number[];
+  space: number[];
+  grades: (GradeKey | null)[];
+  avgEcology: number | null;
+  avgAttraction: number | null;
+  avgSpace: number | null;
+  ecologyDelta: number | null;
+  attractionDelta: number | null;
+  spaceDelta: number | null;
+  gradeDelta: string | null;
+  missingCount: number;
+};
+
+function computeTrendMetrics(logs: ObservationLog[]): TrendMetrics {
+  const ecology: number[] = [];
+  const attraction: number[] = [];
+  const space: number[] = [];
+  const grades: (GradeKey | null)[] = [];
+  let missingCount = 0;
+
+  logs.forEach((log) => {
+    if (typeof log.ecologyBalance === "number") {
+      ecology.push(log.ecologyBalance);
+    } else {
+      ecology.push(NaN);
+      missingCount++;
+    }
+    if (typeof log.visitorAttraction === "number") {
+      attraction.push(log.visitorAttraction);
+    } else {
+      attraction.push(NaN);
+      missingCount++;
+    }
+    if (typeof log.spaceUtilization === "number") {
+      space.push(log.spaceUtilization);
+    } else {
+      space.push(NaN);
+      missingCount++;
+    }
+    grades.push(normalizeGrade(log.hotelGrade));
+    if (!normalizeGrade(log.hotelGrade)) missingCount++;
+  });
+
+  const validAvg = (arr: number[]): number | null => {
+    const valid = arr.filter((n) => !Number.isNaN(n));
+    if (valid.length === 0) return null;
+    return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+  };
+
+  const calcDelta = (arr: number[]): number | null => {
+    const valid = arr.filter((n) => !Number.isNaN(n));
+    if (valid.length < 2) return null;
+    return valid[valid.length - 1] - valid[0];
+  };
+
+  const validGrades = grades.filter((g): g is GradeKey => g !== null);
+  let gradeDelta: string | null = null;
+  if (validGrades.length >= 2) {
+    const first = GRADE_VALUES[validGrades[0]];
+    const last = GRADE_VALUES[validGrades[validGrades.length - 1]];
+    const diff = last - first;
+    if (diff > 0) gradeDelta = `↑${diff}`;
+    else if (diff < 0) gradeDelta = `↓${Math.abs(diff)}`;
+    else gradeDelta = "—";
+  }
+
+  return {
+    ecology,
+    attraction,
+    space,
+    grades,
+    avgEcology: validAvg(ecology),
+    avgAttraction: validAvg(attraction),
+    avgSpace: validAvg(space),
+    ecologyDelta: calcDelta(ecology),
+    attractionDelta: calcDelta(attraction),
+    spaceDelta: calcDelta(space),
+    gradeDelta,
+    missingCount
+  };
+}
+
 function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record<Metric, number>> {
   if (!season) return insect.likes;
   const adjustments = season.insectThresholdAdjustments[insect.id] || {};
@@ -5828,6 +5933,11 @@ export default function App() {
                 <div className="log-empty-icon">📋</div>
                 <p>还没有观察日志。</p>
                 <p className="log-empty-hint">点击「结算今天」后，系统会自动记录一条观察日志。</p>
+                <div className="log-trend-empty">
+                  <div className="log-trend-empty-icon">📈</div>
+                  <p>暂无趋势数据</p>
+                  <p className="log-trend-empty-hint">积累至少 2 条结算记录后即可查看指标变化趋势</p>
+                </div>
               </div>
             ) : (
               <>
@@ -5841,63 +5951,196 @@ export default function App() {
                     return true;
                   });
                   const trendLogs = filtered.slice(-7);
+                  const trendMetrics = trendLogs.length > 0 ? computeTrendMetrics(trendLogs) : null;
+                  const hasAnyValidMetric =
+                    trendMetrics &&
+                    (trendMetrics.avgEcology !== null ||
+                      trendMetrics.avgAttraction !== null ||
+                      trendMetrics.avgSpace !== null);
+
                   return (
                     <>
-                      {trendLogs.length >= 2 && (
-                        <div className="log-trend">
-                          <h3>📈 最近{trendLogs.length}次结算指标趋势</h3>
-                          <div className="log-trend-chart">
-                            <div className="log-trend-y-axis">
-                              <span>100</span>
-                              <span>75</span>
-                              <span>50</span>
-                              <span>25</span>
-                              <span>0</span>
-                            </div>
-                            <div className="log-trend-grid">
-                              {[25, 50, 75].map((v) => (
-                                <div key={v} className="log-trend-grid-line" style={{ bottom: `${v}%` }} />
-                              ))}
-                              <div className="log-trend-bars">
-                                {trendLogs.map((log, i) => (
-                                  <div key={log.id} className="log-trend-column">
-                                    <div className="log-trend-bars-group">
-                                      <div
-                                        className="log-trend-bar ecology"
-                                        style={{ height: `${log.ecologyBalance}%` }}
-                                        title={`生态平衡: ${log.ecologyBalance}`}
-                                      />
-                                      <div
-                                        className="log-trend-bar attraction"
-                                        style={{ height: `${log.visitorAttraction}%` }}
-                                        title={`访客吸引: ${log.visitorAttraction}`}
-                                      />
-                                      <div
-                                        className="log-trend-bar space"
-                                        style={{ height: `${log.spaceUtilization}%` }}
-                                        title={`空间利用: ${log.spaceUtilization}`}
-                                      />
-                                    </div>
-                                    <span className="log-trend-label">
-                                      {log.date.slice(5)}
-                                    </span>
-                                  </div>
+                      <div className="log-trend">
+                        <h3>
+                          📈 最近{trendLogs.length}次结算指标趋势
+                          {trendLogs.length < filtered.length && (
+                            <span style={{ fontSize: "0.72rem", color: "#8d8a82", fontWeight: 500, marginLeft: 6 }}>
+                              （共{filtered.length}条，显示最新{trendLogs.length}条）
+                            </span>
+                          )}
+                        </h3>
+
+                        {filtered.length === 0 ? (
+                          <div className="log-trend-empty">
+                            <div className="log-trend-empty-icon">🔍</div>
+                            <p>当前筛选条件下没有匹配的日志记录</p>
+                            <p className="log-trend-empty-hint">
+                              尝试调整昆虫、季节、挑战状态或备注筛选条件
+                            </p>
+                          </div>
+                        ) : trendLogs.length < 2 ? (
+                          <div className="log-trend-empty">
+                            <div className="log-trend-empty-icon">📊</div>
+                            <p>可用记录不足，无法展示趋势</p>
+                            <p className="log-trend-empty-hint">
+                              当前筛选后仅有 {trendLogs.length} 条记录，至少需要 2 条才能计算变化趋势
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            {trendMetrics && trendMetrics.missingCount > 0 && (
+                              <div className="log-trend-warning">
+                                ⚠️ 检测到 {trendMetrics.missingCount} 处旧版本数据缺失，图表中已用占位条标识，统计仅基于完整记录
+                              </div>
+                            )}
+                            <div className="log-trend-chart">
+                              <div className="log-trend-y-axis">
+                                <span>100</span>
+                                <span>75</span>
+                                <span>50</span>
+                                <span>25</span>
+                                <span>0</span>
+                              </div>
+                              <div className="log-trend-grid">
+                                {[25, 50, 75].map((v) => (
+                                  <div key={v} className="log-trend-grid-line" style={{ bottom: `${v}%` }} />
                                 ))}
+                                <div className="log-trend-bars">
+                                  {trendLogs.map((log, i) => {
+                                    const ecologyValid = typeof log.ecologyBalance === "number";
+                                    const attractionValid = typeof log.visitorAttraction === "number";
+                                    const spaceValid = typeof log.spaceUtilization === "number";
+                                    return (
+                                      <div key={log.id} className="log-trend-column">
+                                        <div className="log-trend-bars-group">
+                                          <div
+                                            className={`log-trend-bar ecology ${!ecologyValid ? "log-trend-missing-bar" : ""}`}
+                                            style={{ height: ecologyValid ? `${log.ecologyBalance}%` : "15%" }}
+                                            title={
+                                              ecologyValid
+                                                ? `生态平衡: ${log.ecologyBalance}`
+                                                : "生态平衡: 旧数据缺失"
+                                            }
+                                          />
+                                          <div
+                                            className={`log-trend-bar attraction ${!attractionValid ? "log-trend-missing-bar" : ""}`}
+                                            style={{ height: attractionValid ? `${log.visitorAttraction}%` : "15%" }}
+                                            title={
+                                              attractionValid
+                                                ? `访客吸引: ${log.visitorAttraction}`
+                                                : "访客吸引: 旧数据缺失"
+                                            }
+                                          />
+                                          <div
+                                            className={`log-trend-bar space ${!spaceValid ? "log-trend-missing-bar" : ""}`}
+                                            style={{ height: spaceValid ? `${log.spaceUtilization}%` : "15%" }}
+                                            title={
+                                              spaceValid
+                                                ? `空间利用: ${log.spaceUtilization}`
+                                                : "空间利用: 旧数据缺失"
+                                            }
+                                          />
+                                        </div>
+                                        <span className="log-trend-label">
+                                          {log.date.slice(5)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          <div className="log-trend-legend">
-                            <span className="log-trend-legend-item"><i className="legend-dot ecology" />生态平衡</span>
-                            <span className="log-trend-legend-item"><i className="legend-dot attraction" />访客吸引</span>
-                            <span className="log-trend-legend-item"><i className="legend-dot space" />空间利用</span>
-                          </div>
-                        </div>
-                      )}
+                            <div className="log-trend-legend">
+                              <span className="log-trend-legend-item"><i className="legend-dot ecology" />生态平衡</span>
+                              <span className="log-trend-legend-item"><i className="legend-dot attraction" />访客吸引</span>
+                              <span className="log-trend-legend-item"><i className="legend-dot space" />空间利用</span>
+                              <span className="log-trend-legend-item"><i className="legend-dot grade" style={{ background: "#e8e5dd" }} />综合评级（下方）</span>
+                            </div>
+
+                            {trendMetrics && (
+                              <div className="log-trend-grade-row">
+                                {trendLogs.map((log, i) => {
+                                  const grade = normalizeGrade(log.hotelGrade);
+                                  return (
+                                    <div key={log.id} className="log-trend-grade-item">
+                                      <div
+                                        className={`log-trend-grade-badge ${grade ? `grade-${grade.toLowerCase()}` : "grade-missing"}`}
+                                        title={grade ? `综合评级: ${grade}` : "综合评级: 旧数据缺失"}
+                                      >
+                                        {grade || "?"}
+                                      </div>
+                                      <span className="log-trend-grade-date">{log.date.slice(5)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {hasAnyValidMetric && trendMetrics && (
+                              <div className="log-trend-stats">
+                                <div className="log-trend-stat">
+                                  <span className="log-trend-stat-label">平均生态</span>
+                                  <span className="log-trend-stat-value">{trendMetrics.avgEcology ?? "—"}</span>
+                                  {trendMetrics.ecologyDelta !== null && (
+                                    <span className={`log-trend-stat-delta ${trendMetrics.ecologyDelta > 0 ? "up" : trendMetrics.ecologyDelta < 0 ? "down" : "flat"}`}>
+                                      {trendMetrics.ecologyDelta > 0 ? "↑" : trendMetrics.ecologyDelta < 0 ? "↓" : "—"}
+                                      {trendMetrics.ecologyDelta !== 0 ? Math.abs(trendMetrics.ecologyDelta) : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="log-trend-stat">
+                                  <span className="log-trend-stat-label">平均吸引</span>
+                                  <span className="log-trend-stat-value">{trendMetrics.avgAttraction ?? "—"}</span>
+                                  {trendMetrics.attractionDelta !== null && (
+                                    <span className={`log-trend-stat-delta ${trendMetrics.attractionDelta > 0 ? "up" : trendMetrics.attractionDelta < 0 ? "down" : "flat"}`}>
+                                      {trendMetrics.attractionDelta > 0 ? "↑" : trendMetrics.attractionDelta < 0 ? "↓" : "—"}
+                                      {trendMetrics.attractionDelta !== 0 ? Math.abs(trendMetrics.attractionDelta) : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="log-trend-stat">
+                                  <span className="log-trend-stat-label">平均空间</span>
+                                  <span className="log-trend-stat-value">{trendMetrics.avgSpace ?? "—"}</span>
+                                  {trendMetrics.spaceDelta !== null && (
+                                    <span className={`log-trend-stat-delta ${trendMetrics.spaceDelta > 0 ? "up" : trendMetrics.spaceDelta < 0 ? "down" : "flat"}`}>
+                                      {trendMetrics.spaceDelta > 0 ? "↑" : trendMetrics.spaceDelta < 0 ? "↓" : "—"}
+                                      {trendMetrics.spaceDelta !== 0 ? Math.abs(trendMetrics.spaceDelta) : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="log-trend-stat">
+                                  <span className="log-trend-stat-label">评级变化</span>
+                                  <span className="log-trend-stat-value">
+                                    {trendMetrics.grades.filter((g) => g !== null).length > 0
+                                      ? trendMetrics.grades[trendMetrics.grades.length - 1] ?? "—"
+                                      : "—"}
+                                  </span>
+                                  {trendMetrics.gradeDelta !== null && (
+                                    <span
+                                      className={`log-trend-stat-delta ${
+                                        trendMetrics.gradeDelta.startsWith("↑")
+                                          ? "up"
+                                          : trendMetrics.gradeDelta.startsWith("↓")
+                                          ? "down"
+                                          : "flat"
+                                      }`}
+                                    >
+                                      {trendMetrics.gradeDelta}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
 
                       <div className="log-list">
                         {[...filtered].reverse().map((log) => {
                           const logSeason = log.seasonId ? seasons.find((s) => s.id === log.seasonId) : null;
                           const logChallenge = findChallengeById(log.challengeId, customChallenges);
+                          const grade = normalizeGrade(log.hotelGrade);
+                          const hasMissingMetrics = !hasCompleteMetrics(log);
                           return (
                             <article key={log.id} className="log-card">
                               <div className="log-card-header">
@@ -5911,13 +6154,18 @@ export default function App() {
                                   {!logSeason && (
                                     <span className="log-season-tag default">🌍 默认</span>
                                   )}
+                                  {hasMissingMetrics && (
+                                    <span className="log-season-tag default" style={{ color: "#d97706" }}>
+                                      ⚠️ 旧数据
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="log-card-badges">
                                   <span className={`log-challenge-badge ${log.challengeSuccess ? "success" : "fail"}`}>
                                     {log.challengeSuccess ? "✅ 挑战成功" : "❌ 挑战失败"}
                                   </span>
-                                  <span className={`log-grade-badge grade-${log.hotelGrade === "—" ? "none" : log.hotelGrade.toLowerCase()}`}>
-                                    {log.hotelGrade}
+                                  <span className={`log-grade-badge ${grade ? `grade-${grade.toLowerCase()}` : "grade-none"}`}>
+                                    {log.hotelGrade || "—"}
                                   </span>
                                 </div>
                               </div>
