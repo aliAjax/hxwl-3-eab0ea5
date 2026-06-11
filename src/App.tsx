@@ -1692,6 +1692,7 @@ export default function App() {
     currentX: number;
     currentY: number;
     ghostEl: HTMLElement | null;
+    justFinished: boolean;
   }>({
     active: false,
     source: null,
@@ -1699,7 +1700,8 @@ export default function App() {
     startY: 0,
     currentX: 0,
     currentY: 0,
-    ghostEl: null
+    ghostEl: null,
+    justFinished: false
   });
   const gridRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -2202,7 +2204,8 @@ export default function App() {
       startY: touch.clientY,
       currentX: touch.clientX,
       currentY: touch.clientY,
-      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY)
+      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY),
+      justFinished: false
     };
     setIsDragging(true);
     setDragSource({ type: "material", id });
@@ -2224,7 +2227,8 @@ export default function App() {
       startY: touch.clientY,
       currentX: touch.clientX,
       currentY: touch.clientY,
-      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY)
+      ghostEl: createGhostElement(decoration, touch.clientX, touch.clientY),
+      justFinished: false
     };
     setIsDragging(true);
     setDragSource({ type: "cell", index });
@@ -2273,21 +2277,29 @@ export default function App() {
       startY: 0,
       currentX: 0,
       currentY: 0,
-      ghostEl: null
+      ghostEl: null,
+      justFinished: true
     };
     setIsDragging(false);
     setDragSource(null);
     setDragOverIndex(null);
+
+    setTimeout(() => {
+      touchDragRef.current.justFinished = false;
+    }, 300);
   }
 
   function handleMaterialClick(id: string) {
-    const decoration = decorations.find((item) => item.id === id);
-    if (decoration) {
-      setSelectedDecoration(decoration);
-      setShowMaterialDrawer(true);
+    if (touchDragRef.current.justFinished) {
+      touchDragRef.current.justFinished = false;
+      return;
     }
-
     if (fillMode === "auto") {
+      const decoration = decorations.find((item) => item.id === id);
+      if (decoration) {
+        setSelectedDecoration(decoration);
+        setShowMaterialDrawer(true);
+      }
       setState((current) => {
         const newPlaced = [...current.placed];
         while (newPlaced.length < 12) {
@@ -2305,11 +2317,20 @@ export default function App() {
   }
 
   function handleCellClick(index: number) {
+    if (touchDragRef.current.justFinished) {
+      touchDragRef.current.justFinished = false;
+      return;
+    }
+    const placed = state.placed[index];
     if (fillMode === "select" && selectedMaterialId) {
-      placeMaterialAt(selectedMaterialId, index);
+      if (!placed) {
+        placeMaterialAt(selectedMaterialId, index);
+      }
       setSelectedMaterialId(null);
     } else {
-      removeMaterial(index);
+      if (placed) {
+        removeMaterial(index);
+      }
     }
   }
 
@@ -2885,7 +2906,7 @@ export default function App() {
                     {suggestion.relatedDecoration && (
                       <button
                         className="suggestion-action-btn"
-                        onClick={() => addDecoration(suggestion.relatedDecoration!)}
+                        onClick={() => handleMaterialClick(suggestion.relatedDecoration!)}
                       >
                         添加{decorations.find((d) => d.id === suggestion.relatedDecoration)?.name}
                       </button>
