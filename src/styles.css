@@ -4334,6 +4334,196 @@ meter {
   font-size: 0.9rem;
 }
 
+.log-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  background: rgba(30, 50, 20, 0.06);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.log-filter-toggle:hover {
+  background: rgba(30, 50, 20, 0.1);
+}
+
+.log-filter-toggle.active {
+  background: rgba(90, 160, 106, 0.15);
+  border-color: rgba(90, 160, 106, 0.5);
+}
+
+.log-filter-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  width: 36px;
+  height: 20px;
+  background: rgba(30, 50, 20, 0.15);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.log-filter-toggle.active .toggle-slider {
+  background: #5aa06a;
+}
+
+.toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.log-filter-toggle.active .toggle-slider::after {
+  transform: translateX(16px);
+}
+
+.toggle-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #5e6558;
+}
+
+.log-filter-toggle.active .toggle-label {
+  color: #3e6328;
+  font-weight: 700;
+}
+
+.log-note-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.log-note-edit-btn {
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(30, 50, 20, 0.15);
+  background: rgba(30, 50, 20, 0.04);
+  color: #5e6558;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.log-note-edit-btn:hover {
+  background: rgba(90, 160, 106, 0.12);
+  border-color: rgba(90, 160, 106, 0.3);
+  color: #3e6328;
+}
+
+.log-note-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.log-note-textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  border: 1.5px solid rgba(30, 50, 20, 0.15);
+  border-radius: 8px;
+  background: #fffaf0;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #2e3820;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.log-note-textarea:focus {
+  border-color: #5aa06a;
+  background: #fff;
+}
+
+.log-note-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.log-note-count {
+  font-size: 0.7rem;
+  color: #8d8a82;
+  font-weight: 500;
+}
+
+.log-note-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.log-note-cancel-btn,
+.log-note-save-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.log-note-cancel-btn {
+  background: rgba(30, 50, 20, 0.06);
+  color: #5e6558;
+  border-color: rgba(30, 50, 20, 0.15);
+}
+
+.log-note-cancel-btn:hover {
+  background: rgba(30, 50, 20, 0.1);
+}
+
+.log-note-save-btn {
+  background: #5aa06a;
+  color: #fff;
+  border-color: #5aa06a;
+}
+
+.log-note-save-btn:hover {
+  background: #4a8a5a;
+  border-color: #4a8a5a;
+}
+
+.log-note-content {
+  padding: 8px 0;
+}
+
+.log-note-text {
+  margin: 0;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #fff8e9, #fef6e4);
+  border-left: 3px solid #d97706;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.85rem;
+  color: #5a4e2e;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.log-note-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #8d8a82;
+  font-style: italic;
+}
+
 @media (max-width: 768px) {
   .log-header {
     padding: 16px 16px 12px;
@@ -4353,6 +4543,28 @@ meter {
 
   .log-filter-btn {
     padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+
+  .log-filter-toggle {
+    padding: 4px 10px;
+  }
+
+  .toggle-slider {
+    width: 32px;
+    height: 18px;
+  }
+
+  .toggle-slider::after {
+    width: 14px;
+    height: 14px;
+  }
+
+  .log-filter-toggle.active .toggle-slider::after {
+    transform: translateX(14px);
+  }
+
+  .toggle-label {
     font-size: 0.72rem;
   }
 
@@ -4383,6 +4595,15 @@ meter {
 
   .log-modal {
     max-height: 92vh;
+  }
+
+  .log-note-textarea {
+    font-size: 0.82rem;
+    min-height: 50px;
+  }
+
+  .log-note-text {
+    font-size: 0.82rem;
   }
 }
 

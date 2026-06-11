@@ -196,6 +196,7 @@ const challengeStorageKey = "hxwl-3-challenge";
 const snapshotStorageKey = "hxwl-3-snapshots";
 const seasonStorageKey = "hxwl-3-season";
 const logStorageKey = "hxwl-3-observation-logs";
+const logNoteStorageKey = "hxwl-3-log-notes";
 const MAX_SNAPSHOTS = 5;
 
 const challengePool: Challenge[] = [
@@ -1113,6 +1114,18 @@ function saveLogs(logs: ObservationLog[]): void {
   localStorage.setItem(logStorageKey, JSON.stringify(logs));
 }
 
+function loadLogNotes(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(logNoteStorageKey) || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function saveLogNotes(notes: Record<string, string>): void {
+  localStorage.setItem(logNoteStorageKey, JSON.stringify(notes));
+}
+
 function getAdjustedLikes(insect: Insect, season: Season | null): Partial<Record<Metric, number>> {
   if (!season) return insect.likes;
   const adjustments = season.insectThresholdAdjustments[insect.id] || {};
@@ -1806,10 +1819,14 @@ export default function App() {
   const [layoutCandidates, setLayoutCandidates] = useState<LayoutCandidate[]>([]);
   const [hasGeneratedLayouts, setHasGeneratedLayouts] = useState(false);
   const [logs, setLogs] = useState<ObservationLog[]>(loadLogs);
+  const [logNotes, setLogNotes] = useState<Record<string, string>>(loadLogNotes);
   const [showLogPanel, setShowLogPanel] = useState(false);
   const [logFilterInsect, setLogFilterInsect] = useState<string | null>(null);
   const [logFilterSeason, setLogFilterSeason] = useState<SeasonId | null>(null);
   const [logFilterChallengeSuccess, setLogFilterChallengeSuccess] = useState<"all" | "success" | "fail">("all");
+  const [logFilterHasNote, setLogFilterHasNote] = useState(false);
+  const [editingLogNoteId, setEditingLogNoteId] = useState<string | null>(null);
+  const [editingLogNoteText, setEditingLogNoteText] = useState("");
   const [showSimPanel, setShowSimPanel] = useState(false);
   const [simConfig, setSimConfig] = useState<SimConfig>({
     sourceType: "current",
@@ -1881,6 +1898,35 @@ export default function App() {
   useEffect(() => {
     saveLogs(logs);
   }, [logs]);
+
+  useEffect(() => {
+    saveLogNotes(logNotes);
+  }, [logNotes]);
+
+  function handleEditNote(logId: string, currentNote: string) {
+    setEditingLogNoteId(logId);
+    setEditingLogNoteText(currentNote);
+  }
+
+  function handleSaveNote(logId: string) {
+    const trimmed = editingLogNoteText.trim();
+    if (trimmed) {
+      setLogNotes((prev) => ({ ...prev, [logId]: trimmed }));
+    } else {
+      setLogNotes((prev) => {
+        const next = { ...prev };
+        delete next[logId];
+        return next;
+      });
+    }
+    setEditingLogNoteId(null);
+    setEditingLogNoteText("");
+  }
+
+  function handleCancelNoteEdit() {
+    setEditingLogNoteId(null);
+    setEditingLogNoteText("");
+  }
 
   useEffect(() => {
     if (fillMode !== "select" || !selectedMaterialId) return;
@@ -4513,6 +4559,20 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <div className="log-filter-group">
+                <label className="log-filter-label">📝 备注</label>
+                <div className="log-filter-options">
+                  <label className={`log-filter-toggle ${logFilterHasNote ? "active" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={logFilterHasNote}
+                      onChange={(e) => setLogFilterHasNote(e.target.checked)}
+                    />
+                    <span className="toggle-slider" />
+                    <span className="toggle-label">只看有备注记录</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             {logs.length === 0 ? (
@@ -4529,6 +4589,7 @@ export default function App() {
                     if (logFilterSeason && log.seasonId !== logFilterSeason) return false;
                     if (logFilterChallengeSuccess === "success" && !log.challengeSuccess) return false;
                     if (logFilterChallengeSuccess === "fail" && log.challengeSuccess) return false;
+                    if (logFilterHasNote && !logNotes[log.id]) return false;
                     return true;
                   });
                   const trendLogs = filtered.slice(-7);
@@ -4682,6 +4743,57 @@ export default function App() {
                                     <span className="log-rating-chip attraction">吸引 {log.visitorAttraction}</span>
                                     <span className="log-rating-chip space">空间 {log.spaceUtilization}</span>
                                   </div>
+                                </div>
+
+                                <div className="log-card-section">
+                                  <div className="log-note-header">
+                                    <h4>📝 日志备注</h4>
+                                    {editingLogNoteId !== log.id && (
+                                      <button
+                                        className="log-note-edit-btn"
+                                        onClick={() => handleEditNote(log.id, logNotes[log.id] || "")}
+                                      >
+                                        {logNotes[log.id] ? "编辑" : "添加"}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {editingLogNoteId === log.id ? (
+                                    <div className="log-note-editor">
+                                      <textarea
+                                        className="log-note-textarea"
+                                        value={editingLogNoteText}
+                                        onChange={(e) => setEditingLogNoteText(e.target.value)}
+                                        placeholder="添加备注..."
+                                        autoFocus
+                                        maxLength={100}
+                                      />
+                                      <div className="log-note-actions">
+                                        <span className="log-note-count">{editingLogNoteText.length}/100</span>
+                                        <div className="log-note-buttons">
+                                          <button
+                                            className="log-note-cancel-btn"
+                                            onClick={handleCancelNoteEdit}
+                                          >
+                                            取消
+                                          </button>
+                                          <button
+                                            className="log-note-save-btn"
+                                            onClick={() => handleSaveNote(log.id)}
+                                          >
+                                            保存
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="log-note-content">
+                                      {logNotes[log.id] ? (
+                                        <p className="log-note-text">{logNotes[log.id]}</p>
+                                      ) : (
+                                        <p className="log-note-empty">暂无备注，点击"添加"记录重要信息</p>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
