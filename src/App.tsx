@@ -3053,6 +3053,10 @@ export default function App() {
   }
 
   function handleRunSimulation() {
+    if (simResult) {
+      setLastSimResult(simResult);
+      saveLastSimResult(simResult);
+    }
     setIsSimRunning(true);
     setTimeout(() => {
       let initialPlaced: string[] = [];
@@ -3069,8 +3073,6 @@ export default function App() {
       }
       const result = runEcosystemSimulation(simConfig, initialPlaced, initialGuests, snapshots, customChallenges);
       setSimResult(result);
-      setLastSimResult(result);
-      saveLastSimResult(result);
       setSimSelectedDayIndex(0);
       setIsSimRunning(false);
     }, 50);
