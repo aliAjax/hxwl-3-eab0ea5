@@ -1818,6 +1818,7 @@ export default function App() {
   });
   const [layoutCandidates, setLayoutCandidates] = useState<LayoutCandidate[]>([]);
   const [hasGeneratedLayouts, setHasGeneratedLayouts] = useState(false);
+  const [calendarDayChallenge, setCalendarDayChallenge] = useState<CalendarDayChallenge | null>(null);
   const [logs, setLogs] = useState<ObservationLog[]>(loadLogs);
   const [logNotes, setLogNotes] = useState<Record<string, string>>(loadLogNotes);
   const [showLogPanel, setShowLogPanel] = useState(false);
@@ -2710,7 +2711,8 @@ export default function App() {
   }
 
   function handleGenerateLayouts() {
-    const candidates = generateLayoutCandidates(layoutLabConfig, todayChallenge);
+    const challenge = calendarDayChallenge ? calendarDayChallenge.challenge : todayChallenge;
+    const candidates = generateLayoutCandidates(layoutLabConfig, challenge);
     setLayoutCandidates(candidates);
     setHasGeneratedLayouts(true);
   }
@@ -2726,6 +2728,7 @@ export default function App() {
   }
 
   function openLayoutLab() {
+    setCalendarDayChallenge(null);
     setLayoutLabConfig({
       targetInsectId: null,
       seasonId: currentSeasonId,
@@ -2734,6 +2737,48 @@ export default function App() {
     setLayoutCandidates([]);
     setHasGeneratedLayouts(false);
     setShowLayoutLab(true);
+  }
+
+  function openLayoutLabFromCalendar(day: CalendarDayChallenge) {
+    setCalendarDayChallenge(day);
+    
+    let targetInsectId: string | null = null;
+    if (day.challenge.type === "attract") {
+      targetInsectId = day.challenge.target.insectId as string;
+    } else if (day.challenge.type === "dual_insect") {
+      targetInsectId = (day.challenge.target.insectIds as string[])[0];
+    }
+    
+    let maxCells = 6;
+    if (day.challenge.type === "metric_limit") {
+      maxCells = day.challenge.target.maxCells as number;
+    }
+    
+    setLayoutLabConfig({
+      targetInsectId,
+      seasonId: day.recommendedSeason.id,
+      maxCells
+    });
+    
+    setShowEcoCalendar(false);
+    setSelectedCalendarDay(null);
+    
+    setLayoutCandidates([]);
+    setHasGeneratedLayouts(false);
+    setShowLayoutLab(true);
+    
+    setTimeout(() => {
+      const candidates = generateLayoutCandidates(
+        {
+          targetInsectId,
+          seasonId: day.recommendedSeason.id,
+          maxCells
+        },
+        day.challenge
+      );
+      setLayoutCandidates(candidates);
+      setHasGeneratedLayouts(true);
+    }, 50);
   }
 
   function openSimPanel() {
@@ -3816,19 +3861,27 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="eco-calendar-detail-actions">
+                  <button
+                    className="eco-calendar-action-btn secondary"
+                    onClick={() => openLayoutLabFromCalendar(selectedCalendarDay)}
+                  >
+                    🧪 带入布局实验室
+                  </button>
+                  {selectedCalendarDay.isToday && !challengeState.completed && (
+                    <button
+                      className="eco-calendar-action-btn primary"
+                      onClick={() => { setShowEcoCalendar(false); setSelectedCalendarDay(null); }}
+                    >
+                      去布局旅馆
+                    </button>
+                  )}
+                </div>
                 {selectedCalendarDay.isToday && (
                   <div className="eco-calendar-today-action">
                     <span className="eco-calendar-today-note">
                       {challengeState.completed ? "✅ 今日挑战已完成" : "⏳ 今日挑战进行中，完成旅馆布局后点击「结算今天」"}
                     </span>
-                    {!challengeState.completed && (
-                      <button
-                        className="eco-calendar-action-btn primary"
-                        onClick={() => { setShowEcoCalendar(false); setSelectedCalendarDay(null); }}
-                      >
-                        去布局旅馆
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -3850,9 +3903,17 @@ export default function App() {
               <div>
                 <p className="eyebrow">布局实验室</p>
                 <h2>智能生成布局方案</h2>
-                <p className="layout-lab-hint">
-                  选择目标昆虫、季节和最多使用格数，系统将为你生成3个候选布局方案。
-                </p>
+                {calendarDayChallenge ? (
+                  <p className="layout-lab-hint" style={{ color: calendarDayChallenge.recommendedSeason.color }}>
+                    📅 来自 {calendarDayChallenge.dayOfWeek} · {calendarDayChallenge.dateStr} 的挑战：
+                    <b>{calendarDayChallenge.challenge.title}</b>
+                    ｜推荐季节：{calendarDayChallenge.recommendedSeason.icon} {calendarDayChallenge.recommendedSeason.name}
+                  </p>
+                ) : (
+                  <p className="layout-lab-hint">
+                    选择目标昆虫、季节和最多使用格数，系统将为你生成3个候选布局方案。
+                  </p>
+                )}
               </div>
               <button className="layout-lab-close" onClick={() => setShowLayoutLab(false)}>✕</button>
             </div>

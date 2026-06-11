@@ -3213,6 +3213,26 @@ meter {
   background: #4a8a58;
 }
 
+.eco-calendar-action-btn.secondary {
+  background: #fff;
+  color: #6b4e9e;
+  border: 2px solid #6b4e9e;
+}
+
+.eco-calendar-action-btn.secondary:hover {
+  background: #6b4e9e;
+  color: #fff;
+}
+
+.eco-calendar-detail-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 0 12px;
+  margin-top: 8px;
+  border-top: 1px solid #e0e0dc;
+}
+
 .eco-calendar-empty-detail {
   padding: 60px 24px;
   text-align: center;
@@ -3237,6 +3257,10 @@ meter {
 @media (max-width: 640px) {
   .eco-calendar-week {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .eco-calendar-detail-actions {
+    flex-direction: column;
   }
 
   .eco-calendar-today-action {
