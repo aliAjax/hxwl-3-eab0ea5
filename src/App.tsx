@@ -117,6 +117,17 @@ type SimReasonItem = {
   value?: number;
 };
 
+type SnapshotCompareResult = {
+  placedDiff: { index: number; current: string | null; snapshot: string | null; changeType: "added" | "removed" | "changed" | "same" }[];
+  metricsDiff: { metric: Metric; current: number; snapshot: number; delta: number }[];
+  guestsDiff: { insectId: string; changeType: "added" | "removed" | "same" }[];
+  ratingDiff: {
+    current: { ecologyBalance: number; visitorAttraction: number; spaceUtilization: number; overallGrade: string };
+    snapshot: { ecologyBalance: number; visitorAttraction: number; spaceUtilization: number; overallGrade: string };
+    deltas: { ecologyBalance: number; visitorAttraction: number; spaceUtilization: number };
+  };
+};
+
 type SimDayResult = {
   dayIndex: number;
   dateStr: string;
@@ -1633,6 +1644,139 @@ function generateLayoutCandidates(
   return candidates.slice(0, 3);
 }
 
+function calculateSnapshotRating(
+  snapshot: Snapshot,
+  season: Season | null
+): { ecologyBalance: number; visitorAttraction: number; spaceUtilization: number; overallGrade: string } {
+  const cleanPlaced = snapshot.placed.filter(Boolean);
+  if (cleanPlaced.length === 0) {
+    return {
+      ecologyBalance: 0,
+      visitorAttraction: 0,
+      spaceUtilization: 0,
+      overallGrade: "—"
+    };
+  }
+
+  const effectiveMetrics = season
+    ? calculateAdjustedMetrics(cleanPlaced, season)
+    : calculateMetricsForPlaced(cleanPlaced);
+  const metricValues = (Object.keys(effectiveMetrics) as Metric[]).map((m) => effectiveMetrics[m]);
+
+  const totalMetricSum = metricValues.reduce((a, b) => a + b, 0);
+  const mean = totalMetricSum / 4;
+  let ecologyBalance = 0;
+  if (mean > 0) {
+    const variance = metricValues.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / 4;
+    const stddev = Math.sqrt(variance);
+    const cv = stddev / mean;
+    ecologyBalance = Math.round(Math.max(0, Math.min(100, (1 - cv) * 100)));
+  }
+  const zeroMetrics = metricValues.filter((v) => v === 0).length;
+  ecologyBalance = Math.max(0, ecologyBalance - zeroMetrics * 18);
+
+  const validGuestIds = new Set(snapshot.guests.filter((id) => insects.some((insect) => insect.id === id)));
+  let totalRequirementRatio = 0;
+  insects.forEach((insect) => {
+    const adjustedLikes = getAdjustedLikes(insect, season);
+    const requirements = Object.entries(adjustedLikes);
+    if (requirements.length === 0) return;
+    let metCount = 0;
+    requirements.forEach(([metric, value]) => {
+      if (effectiveMetrics[metric as Metric] >= Number(value)) metCount++;
+    });
+    totalRequirementRatio += metCount / requirements.length;
+  });
+  const environmentReadiness = totalRequirementRatio / insects.length;
+  const guestOccupancy = validGuestIds.size / insects.length;
+  const visitorAttraction = Math.round((environmentReadiness * 0.75 + guestOccupancy * 0.25) * 100);
+
+  const fillRate = cleanPlaced.length / 12;
+  const uniqueTypes = new Set(cleanPlaced).size;
+  const diversity = uniqueTypes / decorations.length;
+  const counts: Record<string, number> = {};
+  cleanPlaced.forEach((id) => {
+    counts[id] = (counts[id] || 0) + 1;
+  });
+  const maxCount = Math.max(...Object.values(counts));
+  const excessiveDupPenalty = maxCount > 4 ? 0.5 : maxCount > 3 ? 0.8 : 1;
+  const spaceUtilization = Math.round(
+    (fillRate * 0.4 + diversity * 0.35 + fillRate * excessiveDupPenalty * 0.25) * 100
+  );
+
+  const avgScore = (ecologyBalance + visitorAttraction + spaceUtilization) / 3;
+  let overallGrade = "D";
+  if (avgScore >= 90) overallGrade = "S";
+  else if (avgScore >= 75) overallGrade = "A";
+  else if (avgScore >= 60) overallGrade = "B";
+  else if (avgScore >= 40) overallGrade = "C";
+
+  return { ecologyBalance, visitorAttraction, spaceUtilization, overallGrade };
+}
+
+function compareSnapshotWithCurrent(
+  snapshot: Snapshot,
+  currentState: HotelState,
+  currentMetrics: Record<Metric, number>,
+  currentRating: { ecologyBalance: number; visitorAttraction: number; spaceUtilization: number; overallGrade: string },
+  season: Season | null
+): SnapshotCompareResult {
+  const currentPlacedPadded = [...currentState.placed];
+  while (currentPlacedPadded.length < 12) currentPlacedPadded.push("");
+  const snapshotPlacedPadded = [...snapshot.placed];
+  while (snapshotPlacedPadded.length < 12) snapshotPlacedPadded.push("");
+
+  const placedDiff = Array.from({ length: 12 }, (_, index) => {
+    const current = currentPlacedPadded[index] || null;
+    const snap = snapshotPlacedPadded[index] || null;
+    let changeType: "added" | "removed" | "changed" | "same" = "same";
+    if (!current && snap) changeType = "added";
+    else if (current && !snap) changeType = "removed";
+    else if (current && snap && current !== snap) changeType = "changed";
+    return { index, current, snapshot: snap, changeType };
+  });
+
+  const metricsDiff = (Object.keys(currentMetrics) as Metric[]).map((metric) => ({
+    metric,
+    current: currentMetrics[metric],
+    snapshot: snapshot.metrics[metric] || 0,
+    delta: currentMetrics[metric] - (snapshot.metrics[metric] || 0)
+  }));
+
+  const allGuestIds = Array.from(new Set([...currentState.guests, ...snapshot.guests]));
+  const guestsDiff = allGuestIds.map((insectId) => {
+    const inCurrent = currentState.guests.includes(insectId);
+    const inSnapshot = snapshot.guests.includes(insectId);
+    let changeType: "added" | "removed" | "same" = "same";
+    if (inCurrent && !inSnapshot) changeType = "added";
+    else if (!inCurrent && inSnapshot) changeType = "removed";
+    return { insectId, changeType };
+  });
+
+  const snapshotRating = calculateSnapshotRating(snapshot, season);
+  const ratingDiff = {
+    current: {
+      ecologyBalance: currentRating.ecologyBalance,
+      visitorAttraction: currentRating.visitorAttraction,
+      spaceUtilization: currentRating.spaceUtilization,
+      overallGrade: currentRating.overallGrade
+    },
+    snapshot: {
+      ecologyBalance: snapshotRating.ecologyBalance,
+      visitorAttraction: snapshotRating.visitorAttraction,
+      spaceUtilization: snapshotRating.spaceUtilization,
+      overallGrade: snapshotRating.overallGrade
+    },
+    deltas: {
+      ecologyBalance: currentRating.ecologyBalance - snapshotRating.ecologyBalance,
+      visitorAttraction: currentRating.visitorAttraction - snapshotRating.visitorAttraction,
+      spaceUtilization: currentRating.spaceUtilization - snapshotRating.spaceUtilization
+    }
+  };
+
+  return { placedDiff, metricsDiff, guestsDiff, ratingDiff };
+}
+
 type DragSource = { type: "material"; id: string } | { type: "cell"; index: number } | null;
 type FillMode = "auto" | "select";
 
@@ -1648,6 +1792,8 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const [snapshotName, setSnapshotName] = useState("");
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
+  const [comparingSnapshotId, setComparingSnapshotId] = useState<string | null>(null);
+  const [compareResult, setCompareResult] = useState<SnapshotCompareResult | null>(null);
   const [showSeasonPanel, setShowSeasonPanel] = useState(false);
   const [showEcoCalendar, setShowEcoCalendar] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<CalendarDayChallenge | null>(null);
@@ -2489,6 +2635,32 @@ export default function App() {
 
   function deleteSnapshot(id: string) {
     setSnapshots((prev) => prev.filter((s) => s.id !== id));
+    if (comparingSnapshotId === id) {
+      setComparingSnapshotId(null);
+      setCompareResult(null);
+    }
+  }
+
+  function startComparison(snapshot: Snapshot) {
+    const result = compareSnapshotWithCurrent(
+      snapshot,
+      state,
+      metrics,
+      {
+        ecologyBalance: hotelRating.ecologyBalance,
+        visitorAttraction: hotelRating.visitorAttraction,
+        spaceUtilization: hotelRating.spaceUtilization,
+        overallGrade: hotelRating.overallGrade
+      },
+      currentSeason
+    );
+    setComparingSnapshotId(snapshot.id);
+    setCompareResult(result);
+  }
+
+  function cancelComparison() {
+    setComparingSnapshotId(null);
+    setCompareResult(null);
   }
 
   function handleGenerateLayouts() {
@@ -3067,7 +3239,7 @@ export default function App() {
       )}
 
       {showSnapshotPanel && (
-        <div className="snapshot-overlay" onClick={() => setShowSnapshotPanel(false)}>
+        <div className="snapshot-overlay" onClick={() => { setShowSnapshotPanel(false); cancelComparison(); }}>
           <div className="snapshot-modal" onClick={(e) => e.stopPropagation()}>
             <div className="snapshot-header">
               <div>
@@ -3077,7 +3249,7 @@ export default function App() {
                   已保存 <b>{snapshots.length}</b> / {MAX_SNAPSHOTS}
                 </p>
               </div>
-              <button className="snapshot-close" onClick={() => setShowSnapshotPanel(false)}>✕</button>
+              <button className="snapshot-close" onClick={() => { setShowSnapshotPanel(false); cancelComparison(); }}>✕</button>
             </div>
 
             <div className="snapshot-save">
@@ -3098,6 +3270,165 @@ export default function App() {
               </button>
             </div>
 
+            {compareResult && (
+              <div className="snapshot-compare-result">
+                <div className="snapshot-compare-header">
+                  <h3>📊 对比结果</h3>
+                  <button className="snapshot-compare-close" onClick={cancelComparison}>关闭对比</button>
+                </div>
+                <div className="compare-section">
+                  <h4>材料格差异</h4>
+                  <div className="compare-grid">
+                    {compareResult.placedDiff.map((diff) => {
+                      const currentDeco = diff.current ? decorations.find((d) => d.id === diff.current) : null;
+                      const snapshotDeco = diff.snapshot ? decorations.find((d) => d.id === diff.snapshot) : null;
+                      return (
+                        <div
+                          key={diff.index}
+                          className={`compare-cell compare-${diff.changeType}`}
+                          title={`第${diff.index + 1}格`}
+                        >
+                          <div className="compare-cell-index">{diff.index + 1}</div>
+                          {diff.changeType === "same" && currentDeco && (
+                            <span className="compare-cell-icon" style={{ background: currentDeco.color }}>{currentDeco.icon}</span>
+                          )}
+                          {diff.changeType === "added" && currentDeco && (
+                            <span className="compare-cell-icon" style={{ background: currentDeco.color }}>{currentDeco.icon}</span>
+                          )}
+                          {diff.changeType === "removed" && snapshotDeco && (
+                            <span className="compare-cell-icon" style={{ background: snapshotDeco.color }}>{snapshotDeco.icon}</span>
+                          )}
+                          {diff.changeType === "changed" && (
+                            <div className="compare-cell-changed">
+                              <span className="compare-cell-icon small" style={{ background: snapshotDeco?.color }}>{snapshotDeco?.icon}</span>
+                              <span className="compare-arrow">→</span>
+                              <span className="compare-cell-icon small" style={{ background: currentDeco?.color }}>{currentDeco?.icon}</span>
+                            </div>
+                          )}
+                          {diff.changeType === "same" && !currentDeco && (
+                            <span className="compare-cell-empty"></span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="compare-legend">
+                    <span className="legend-item"><span className="legend-dot added"></span>新增</span>
+                    <span className="legend-item"><span className="legend-dot removed"></span>移除</span>
+                    <span className="legend-item"><span className="legend-dot changed"></span>替换</span>
+                    <span className="legend-item"><span className="legend-dot same"></span>相同</span>
+                  </div>
+                </div>
+
+                <div className="compare-section">
+                  <h4>环境指标差异</h4>
+                  <div className="compare-metrics">
+                    {compareResult.metricsDiff.map((diff) => (
+                      <div key={diff.metric} className="compare-metric-row">
+                        <span className="compare-metric-name">{metricLabels[diff.metric]}</span>
+                        <span className="compare-metric-values">
+                          <span className="compare-value snapshot">{diff.snapshot}</span>
+                          <span className="compare-arrow">→</span>
+                          <span className="compare-value current">{diff.current}</span>
+                          <span className={`compare-delta ${diff.delta > 0 ? "positive" : diff.delta < 0 ? "negative" : "neutral"}`}>
+                            {diff.delta > 0 ? `+${diff.delta}` : diff.delta}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="compare-section">
+                  <h4>已入住昆虫差异</h4>
+                  <div className="compare-guests">
+                    {compareResult.guestsDiff.length === 0 ? (
+                      <p className="compare-empty">无差异</p>
+                    ) : (
+                      compareResult.guestsDiff.map((diff) => {
+                        const insect = insects.find((i) => i.id === diff.insectId);
+                        if (!insect) return null;
+                        return (
+                          <div key={diff.insectId} className={`compare-guest-item compare-${diff.changeType}`}>
+                            <span className="compare-guest-icon">{insect.icon}</span>
+                            <span className="compare-guest-name">{insect.name}</span>
+                            <span className="compare-guest-status">
+                              {diff.changeType === "added" ? "新增入住" : diff.changeType === "removed" ? "已离开" : "均入住"}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="compare-section">
+                  <h4>综合评级差异</h4>
+                  <div className="compare-rating">
+                    <div className="compare-rating-col">
+                      <div className="compare-rating-label">快照</div>
+                      <div className={`compare-rating-grade grade-${compareResult.ratingDiff.snapshot.overallGrade.toLowerCase()}`}>
+                        {compareResult.ratingDiff.snapshot.overallGrade}
+                      </div>
+                      <div className="compare-rating-details">
+                        <div className="compare-rating-detail">
+                          <span>生态平衡</span>
+                          <span>{compareResult.ratingDiff.snapshot.ecologyBalance}</span>
+                        </div>
+                        <div className="compare-rating-detail">
+                          <span>访客吸引</span>
+                          <span>{compareResult.ratingDiff.snapshot.visitorAttraction}</span>
+                        </div>
+                        <div className="compare-rating-detail">
+                          <span>空间利用</span>
+                          <span>{compareResult.ratingDiff.snapshot.spaceUtilization}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="compare-rating-arrow">
+                      <div className="compare-delta-large">
+                        {compareResult.ratingDiff.deltas.ecologyBalance !== 0 && (
+                          <div className={compareResult.ratingDiff.deltas.ecologyBalance > 0 ? "positive" : "negative"}>
+                            生态 {compareResult.ratingDiff.deltas.ecologyBalance > 0 ? "+" : ""}{compareResult.ratingDiff.deltas.ecologyBalance}
+                          </div>
+                        )}
+                        {compareResult.ratingDiff.deltas.visitorAttraction !== 0 && (
+                          <div className={compareResult.ratingDiff.deltas.visitorAttraction > 0 ? "positive" : "negative"}>
+                            访客 {compareResult.ratingDiff.deltas.visitorAttraction > 0 ? "+" : ""}{compareResult.ratingDiff.deltas.visitorAttraction}
+                          </div>
+                        )}
+                        {compareResult.ratingDiff.deltas.spaceUtilization !== 0 && (
+                          <div className={compareResult.ratingDiff.deltas.spaceUtilization > 0 ? "positive" : "negative"}>
+                            空间 {compareResult.ratingDiff.deltas.spaceUtilization > 0 ? "+" : ""}{compareResult.ratingDiff.deltas.spaceUtilization}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="compare-rating-col">
+                      <div className="compare-rating-label">当前</div>
+                      <div className={`compare-rating-grade grade-${compareResult.ratingDiff.current.overallGrade.toLowerCase()}`}>
+                        {compareResult.ratingDiff.current.overallGrade}
+                      </div>
+                      <div className="compare-rating-details">
+                        <div className="compare-rating-detail">
+                          <span>生态平衡</span>
+                          <span>{compareResult.ratingDiff.current.ecologyBalance}</span>
+                        </div>
+                        <div className="compare-rating-detail">
+                          <span>访客吸引</span>
+                          <span>{compareResult.ratingDiff.current.visitorAttraction}</span>
+                        </div>
+                        <div className="compare-rating-detail">
+                          <span>空间利用</span>
+                          <span>{compareResult.ratingDiff.current.spaceUtilization}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {snapshots.length === 0 ? (
               <div className="snapshot-empty">
                 <p>还没有保存过快照。</p>
@@ -3109,8 +3440,9 @@ export default function App() {
                   const guestNames = snapshot.guests
                     .map((gid) => insects.find((i) => i.id === gid)?.name)
                     .filter(Boolean) as string[];
+                  const isComparing = comparingSnapshotId === snapshot.id;
                   return (
-                    <article key={snapshot.id} className="snapshot-card">
+                    <article key={snapshot.id} className={`snapshot-card ${isComparing ? "comparing" : ""}`}>
                       <div className="snapshot-card-info">
                         <div className="snapshot-card-name">
                           <strong>{snapshot.name}</strong>
@@ -3135,6 +3467,13 @@ export default function App() {
                         </div>
                       </div>
                       <div className="snapshot-card-actions">
+                        <button
+                          className="snapshot-compare-btn"
+                          onClick={() => startComparison(snapshot)}
+                          disabled={isComparing}
+                        >
+                          {isComparing ? "对比中" : "对比"}
+                        </button>
                         <button
                           className="snapshot-restore-btn"
                           onClick={() => restoreSnapshot(snapshot)}
