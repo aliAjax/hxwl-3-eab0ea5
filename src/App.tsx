@@ -5103,7 +5103,7 @@ export default function App() {
                             12格预览
                             {layoutLabConfig.lockedCells.length > 0 && (
                               <span className="locked-preview-hint">
-                                （🔒 锁定 {layoutLabConfig.lockedCells.length} 格
+                                （🔒 锁定 {layoutLabConfig.lockedCells.length} 格）
                               </span>
                             )}
                           </p>
