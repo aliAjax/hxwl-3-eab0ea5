@@ -44,6 +44,9 @@ type Challenge = {
     success: string;
     fail: string;
   };
+  isCustom?: boolean;
+  enabled?: boolean;
+  createdAt?: string;
 };
 
 type ChallengeState = {
@@ -197,7 +200,9 @@ const snapshotStorageKey = "hxwl-3-snapshots";
 const seasonStorageKey = "hxwl-3-season";
 const logStorageKey = "hxwl-3-observation-logs";
 const logNoteStorageKey = "hxwl-3-log-notes";
+const customChallengesStorageKey = "hxwl-3-custom-challenges";
 const MAX_SNAPSHOTS = 5;
+const MAX_CUSTOM_CHALLENGES = 20;
 
 const challengePool: Challenge[] = [
   {
@@ -498,7 +503,8 @@ function runEcosystemSimulation(
   config: SimConfig,
   initialPlaced: string[],
   initialGuests: string[],
-  allSnapshots: Snapshot[]
+  allSnapshots: Snapshot[],
+  customChallenges: Challenge[] = []
 ): SimulationResult {
   const days: SimDayResult[] = [];
   let currentGuests = [...initialGuests];
@@ -519,7 +525,7 @@ function runEcosystemSimulation(
   for (let dayIdx = 0; dayIdx < config.daysCount; dayIdx++) {
     const date = addDaysToDate(config.startDate, dayIdx);
     const dateStr = getDateString(date);
-    const challenge = getChallengeForDate(date);
+    const challenge = getChallengeForDate(date, customChallenges);
     const season =
       config.seasonMode === "fixed" && config.fixedSeasonId
         ? seasons.find((s) => s.id === config.fixedSeasonId)!
@@ -903,6 +909,30 @@ function saveSnapshots(snapshots: Snapshot[]): void {
   localStorage.setItem(snapshotStorageKey, JSON.stringify(snapshots));
 }
 
+function loadCustomChallenges(): Challenge[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(customChallengesStorageKey) || "[]") as Challenge[];
+    return saved.filter((c) => c && c.id && c.type && c.title);
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomChallenges(challenges: Challenge[]): void {
+  localStorage.setItem(customChallengesStorageKey, JSON.stringify(challenges));
+}
+
+function getEffectiveChallengePool(customChallenges: Challenge[]): Challenge[] {
+  const enabledCustom = customChallenges.filter((c) => c.enabled && c.isCustom);
+  return [...challengePool, ...enabledCustom];
+}
+
+function findChallengeById(challengeId: string, customChallenges: Challenge[]): Challenge | undefined {
+  const builtIn = challengePool.find((c) => c.id === challengeId);
+  if (builtIn) return builtIn;
+  return customChallenges.find((c) => c.id === challengeId);
+}
+
 function getTodayString(): string {
   const now = new Date();
   const y = now.getFullYear();
@@ -918,16 +948,18 @@ function getLocalDayOfYear(date: Date): number {
   return Math.floor(diff / 86400000);
 }
 
-function getTodayChallenge(): Challenge {
+function getTodayChallenge(customChallenges: Challenge[] = []): Challenge {
+  const pool = getEffectiveChallengePool(customChallenges);
   const dayOfYear = getLocalDayOfYear(new Date());
-  const index = dayOfYear % challengePool.length;
-  return challengePool[index];
+  const index = dayOfYear % pool.length;
+  return pool[index];
 }
 
-function getChallengeForDate(date: Date): Challenge {
+function getChallengeForDate(date: Date, customChallenges: Challenge[] = []): Challenge {
+  const pool = getEffectiveChallengePool(customChallenges);
   const dayOfYear = getLocalDayOfYear(date);
-  const index = dayOfYear % challengePool.length;
-  return challengePool[index];
+  const index = dayOfYear % pool.length;
+  return pool[index];
 }
 
 function getDateString(date: Date): string {
@@ -1007,7 +1039,7 @@ function getSuggestedMaterialsForChallenge(
   return scored.slice(0, 3).map((s) => s.deco);
 }
 
-function generateWeekCalendar(): CalendarDayChallenge[] {
+function generateWeekCalendar(customChallenges: Challenge[] = []): CalendarDayChallenge[] {
   const result: CalendarDayChallenge[] = [];
   const today = new Date();
   const todayStr = getDateString(today);
@@ -1015,7 +1047,7 @@ function generateWeekCalendar(): CalendarDayChallenge[] {
   for (let i = 0; i < 7; i++) {
     const date = new Date(today);
     date.setDate(today.getDate() + i);
-    const challenge = getChallengeForDate(date);
+    const challenge = getChallengeForDate(date, customChallenges);
     const recommendedSeason = getSeasonForDate(date);
     result.push({
       dateStr: getDateString(date),
@@ -1804,6 +1836,20 @@ export default function App() {
   const [showMaterialDrawer, setShowMaterialDrawer] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const [snapshotName, setSnapshotName] = useState("");
+  const [customChallenges, setCustomChallenges] = useState<Challenge[]>(loadCustomChallenges);
+  const [showCustomChallengePanel, setShowCustomChallengePanel] = useState(false);
+  const [showCustomChallengeForm, setShowCustomChallengeForm] = useState(false);
+  const [editingCustomChallenge, setEditingCustomChallenge] = useState<Challenge | null>(null);
+  const [newChallengeType, setNewChallengeType] = useState<ChallengeType>("attract");
+  const [newChallengeTitle, setNewChallengeTitle] = useState("");
+  const [newChallengeDesc, setNewChallengeDesc] = useState("");
+  const [newChallengeInsectId, setNewChallengeInsectId] = useState("bee");
+  const [newChallengeInsectIds, setNewChallengeInsectIds] = useState<string[]>(["bee", "beetle"]);
+  const [newChallengeMetric, setNewChallengeMetric] = useState<Metric>("nectar");
+  const [newChallengeMetricValue, setNewChallengeMetricValue] = useState(8);
+  const [newChallengeMaxCells, setNewChallengeMaxCells] = useState(6);
+  const [newChallengeSuccessMsg, setNewChallengeSuccessMsg] = useState("");
+  const [newChallengeFailMsg, setNewChallengeFailMsg] = useState("");
   const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
   const [comparingSnapshotId, setComparingSnapshotId] = useState<string | null>(null);
   const [compareResult, setCompareResult] = useState<SnapshotCompareResult | null>(null);
@@ -1841,7 +1887,7 @@ export default function App() {
   const [simSelectedDayIndex, setSimSelectedDayIndex] = useState<number>(0);
   const [isSimRunning, setIsSimRunning] = useState(false);
 
-  const weekCalendar = useMemo(() => generateWeekCalendar(), []);
+  const weekCalendar = useMemo(() => generateWeekCalendar(customChallenges), [customChallenges]);
 
   const [dragSource, setDragSource] = useState<DragSource>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -1876,8 +1922,8 @@ export default function App() {
   );
 
   const todayChallenge = useMemo(
-    () => challengePool.find((c) => c.id === challengeState.currentChallengeId) || challengePool[0],
-    [challengeState.currentChallengeId]
+    () => findChallengeById(challengeState.currentChallengeId, customChallenges) || getTodayChallenge(customChallenges),
+    [challengeState.currentChallengeId, customChallenges]
   );
 
   useEffect(() => {
@@ -1895,6 +1941,10 @@ export default function App() {
   useEffect(() => {
     saveSnapshots(snapshots);
   }, [snapshots]);
+
+  useEffect(() => {
+    saveCustomChallenges(customChallenges);
+  }, [customChallenges]);
 
   useEffect(() => {
     saveLogs(logs);
@@ -1952,7 +2002,7 @@ export default function App() {
     const checkDate = () => {
       const today = getTodayString();
       if (challengeState.date !== today) {
-        const challenge = getTodayChallenge();
+        const challenge = getTodayChallenge(customChallenges);
         setChallengeState({
           currentChallengeId: challenge.id,
           date: today,
@@ -1964,7 +2014,35 @@ export default function App() {
     checkDate();
     const interval = setInterval(checkDate, 60000);
     return () => clearInterval(interval);
-  }, [challengeState.date]);
+  }, [challengeState.date, customChallenges]);
+
+  useEffect(() => {
+    const today = getTodayString();
+    const currentChallengeExists = findChallengeById(challengeState.currentChallengeId, customChallenges);
+    if (!currentChallengeExists && challengeState.date === today) {
+      const expectedChallenge = getTodayChallenge(customChallenges);
+      setChallengeState({
+        currentChallengeId: expectedChallenge.id,
+        date: today,
+        completed: false,
+        lastResult: null
+      });
+      return;
+    }
+    const expectedChallenge = getTodayChallenge(customChallenges);
+    if (
+      challengeState.date === today &&
+      challengeState.currentChallengeId !== expectedChallenge.id &&
+      !challengeState.completed
+    ) {
+      setChallengeState({
+        currentChallengeId: expectedChallenge.id,
+        date: today,
+        completed: false,
+        lastResult: null
+      });
+    }
+  }, [customChallenges]);
 
   const metrics = useMemo(
     () =>
@@ -2710,6 +2788,121 @@ export default function App() {
     setCompareResult(null);
   }
 
+  function openCreateChallengeForm() {
+    setEditingCustomChallenge(null);
+    setNewChallengeType("attract");
+    setNewChallengeTitle("");
+    setNewChallengeDesc("");
+    setNewChallengeInsectId("bee");
+    setNewChallengeInsectIds(["bee", "beetle"]);
+    setNewChallengeMetric("nectar");
+    setNewChallengeMetricValue(8);
+    setNewChallengeMaxCells(6);
+    setNewChallengeSuccessMsg("");
+    setNewChallengeFailMsg("");
+    setShowCustomChallengeForm(true);
+  }
+
+  function openEditChallengeForm(challenge: Challenge) {
+    setEditingCustomChallenge(challenge);
+    setNewChallengeType(challenge.type);
+    setNewChallengeTitle(challenge.title);
+    setNewChallengeDesc(challenge.description);
+    if (challenge.type === "attract") {
+      setNewChallengeInsectId(challenge.target.insectId as string);
+    } else if (challenge.type === "dual_insect") {
+      setNewChallengeInsectIds(challenge.target.insectIds as string[]);
+    } else if (challenge.type === "metric_limit") {
+      setNewChallengeMetric(challenge.target.metric as Metric);
+      setNewChallengeMetricValue(challenge.target.value as number);
+      setNewChallengeMaxCells(challenge.target.maxCells as number);
+    }
+    setNewChallengeSuccessMsg(challenge.feedback.success);
+    setNewChallengeFailMsg(challenge.feedback.fail);
+    setShowCustomChallengeForm(true);
+  }
+
+  function closeChallengeForm() {
+    setShowCustomChallengeForm(false);
+    setEditingCustomChallenge(null);
+  }
+
+  function handleSaveChallenge() {
+    const trimmedTitle = newChallengeTitle.trim();
+    if (!trimmedTitle) return;
+
+    let target: Record<string, number | string | string[]> = {};
+    if (newChallengeType === "attract") {
+      target = { insectId: newChallengeInsectId, count: 1 };
+    } else if (newChallengeType === "dual_insect") {
+      target = { insectIds: [...new Set(newChallengeInsectIds)].slice(0, 2) };
+    } else if (newChallengeType === "metric_limit") {
+      target = {
+        metric: newChallengeMetric,
+        value: newChallengeMetricValue,
+        maxCells: newChallengeMaxCells
+      };
+    }
+
+    const successMsg = newChallengeSuccessMsg.trim() || "挑战成功！";
+    const failMsg = newChallengeFailMsg.trim() || "继续加油！";
+
+    if (editingCustomChallenge) {
+      setCustomChallenges((prev) =>
+        prev.map((c) =>
+          c.id === editingCustomChallenge.id
+            ? {
+                ...c,
+                type: newChallengeType,
+                title: trimmedTitle,
+                description: newChallengeDesc.trim(),
+                target,
+                feedback: { success: successMsg, fail: failMsg }
+              }
+            : c
+        )
+      );
+    } else {
+      const newChallenge: Challenge = {
+        id: `custom_${Date.now().toString(36)}`,
+        type: newChallengeType,
+        title: trimmedTitle,
+        description: newChallengeDesc.trim(),
+        target,
+        feedback: { success: successMsg, fail: failMsg },
+        isCustom: true,
+        enabled: true,
+        createdAt: new Date().toLocaleString("zh-CN")
+      };
+      setCustomChallenges((prev) => {
+        if (prev.length >= MAX_CUSTOM_CHALLENGES) {
+          return [...prev.slice(1), newChallenge];
+        }
+        return [...prev, newChallenge];
+      });
+    }
+    closeChallengeForm();
+  }
+
+  function toggleChallengeEnabled(id: string) {
+    setCustomChallenges((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c))
+    );
+  }
+
+  function deleteCustomChallenge(id: string) {
+    setCustomChallenges((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  function toggleDualInsectId(insectId: string) {
+    setNewChallengeInsectIds((prev) => {
+      if (prev.includes(insectId)) {
+        return prev.filter((id) => id !== insectId);
+      }
+      return [...prev, insectId].slice(0, 2);
+    });
+  }
+
   function handleGenerateLayouts() {
     const challenge = calendarDayChallenge ? calendarDayChallenge.challenge : todayChallenge;
     const candidates = generateLayoutCandidates(layoutLabConfig, challenge);
@@ -2810,7 +3003,7 @@ export default function App() {
           initialGuests = [...snap.guests];
         }
       }
-      const result = runEcosystemSimulation(simConfig, initialPlaced, initialGuests, snapshots);
+      const result = runEcosystemSimulation(simConfig, initialPlaced, initialGuests, snapshots, customChallenges);
       setSimResult(result);
       setSimSelectedDayIndex(0);
       setIsSimRunning(false);
@@ -2849,6 +3042,7 @@ export default function App() {
           <button onClick={() => setShowLogPanel(true)}>📋 观察日志</button>
           <button onClick={() => setShowSnapshotPanel(true)}>旅馆快照</button>
           <button onClick={openSimPanel} style={{ background: "#8b6b9c", color: "#fff" }}>🔮 多日模拟</button>
+          <button onClick={() => setShowCustomChallengePanel(true)}>🎯 自定义挑战</button>
           <button onClick={() => setState({ placed: [], guests: [], lastReport: "旅馆已重新整理。" })}>清空旅馆</button>
           <button className="primary" onClick={settleDay}>结算今天</button>
         </div>
@@ -2860,7 +3054,7 @@ export default function App() {
             {challengeState.completed ? "✓" : "★"}
           </div>
           <div className="challenge-content">
-            <p className="eyebrow">每日挑战 · {todayChallenge.type === "attract" ? "吸引昆虫" : todayChallenge.type === "metric_limit" ? "环境目标" : "双重满足"}</p>
+            <p className="eyebrow">每日挑战 · {todayChallenge.type === "attract" ? "吸引昆虫" : todayChallenge.type === "metric_limit" ? "环境目标" : "双重满足"}{todayChallenge.isCustom && <span className="custom-challenge-badge">🎨 自定义</span>}</p>
             <h2>{todayChallenge.title}</h2>
             <p>{todayChallenge.description}</p>
             {challengeState.completed && challengeState.lastResult && (
@@ -3593,6 +3787,289 @@ export default function App() {
         </div>
       )}
 
+      {showCustomChallengePanel && (
+        <div className="custom-challenge-overlay" onClick={() => { setShowCustomChallengePanel(false); closeChallengeForm(); }}>
+          <div className="custom-challenge-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="custom-challenge-header">
+              <div>
+                <p className="eyebrow">自定义挑战</p>
+                <h2>创建你的专属挑战</h2>
+                <p className="custom-challenge-progress">
+                  已创建 <b>{customChallenges.length}</b> / {MAX_CUSTOM_CHALLENGES} 个 · 启用 <b>{customChallenges.filter(c => c.enabled).length}</b> 个参与轮换
+                </p>
+              </div>
+              <button className="custom-challenge-close" onClick={() => { setShowCustomChallengePanel(false); closeChallengeForm(); }}>✕</button>
+            </div>
+
+            {!showCustomChallengeForm ? (
+              <>
+                <div className="custom-challenge-create">
+                  <button
+                    className="custom-challenge-create-btn"
+                    onClick={openCreateChallengeForm}
+                    disabled={customChallenges.length >= MAX_CUSTOM_CHALLENGES}
+                  >
+                    ➕ 创建新挑战
+                  </button>
+                </div>
+
+                {customChallenges.length === 0 ? (
+                  <div className="custom-challenge-empty">
+                    <p>还没有自定义挑战。</p>
+                    <p>创建属于你自己的挑战，它们会参与每日挑战轮换。</p>
+                  </div>
+                ) : (
+                  <div className="custom-challenge-list">
+                    {[...customChallenges].reverse().map((challenge) => (
+                      <article
+                        key={challenge.id}
+                        className={`custom-challenge-card ${challenge.enabled ? "enabled" : "disabled"}`}
+                      >
+                        <div className="custom-challenge-card-info">
+                          <div className="custom-challenge-card-header">
+                            <div className="custom-challenge-type-tag">
+                              {challenge.type === "attract" ? "🎯 吸引昆虫" :
+                               challenge.type === "metric_limit" ? "📊 环境目标" : "🐛🐛 双重满足"}
+                            </div>
+                            {challenge.isCustom && (
+                              <span className="custom-badge">自定义</span>
+                            )}
+                          </div>
+                          <h3 className="custom-challenge-card-title">{challenge.title}</h3>
+                          <p className="custom-challenge-card-desc">{challenge.description || "暂无描述"}</p>
+                          <div className="custom-challenge-card-target">
+                            {challenge.type === "attract" && (
+                              <span>目标：吸引 {insects.find(i => i.id === challenge.target.insectId)?.name || challenge.target.insectId} 入住</span>
+                            )}
+                            {challenge.type === "metric_limit" && (
+                              <span>目标：{metricLabels[challenge.target.metric as Metric]} ≥ {challenge.target.value}，材料 ≤ {challenge.target.maxCells} 格</span>
+                            )}
+                            {challenge.type === "dual_insect" && (
+                              <span>目标：同时满足 {(challenge.target.insectIds as string[]).map(id => insects.find(i => i.id === id)?.name || id).join("、")} 的入住条件</span>
+                            )}
+                          </div>
+                          {challenge.createdAt && (
+                            <span className="custom-challenge-card-time">创建于 {challenge.createdAt}</span>
+                          )}
+                        </div>
+                        <div className="custom-challenge-card-actions">
+                          <label className="custom-challenge-toggle">
+                            <input
+                              type="checkbox"
+                              checked={challenge.enabled || false}
+                              onChange={() => toggleChallengeEnabled(challenge.id)}
+                            />
+                            <span className="toggle-slider" />
+                            <span className="toggle-label">{challenge.enabled ? "已启用" : "已停用"}</span>
+                          </label>
+                          <button
+                            className="custom-challenge-edit-btn"
+                            onClick={() => openEditChallengeForm(challenge)}
+                          >
+                            编辑
+                          </button>
+                          <button
+                            className="custom-challenge-delete-btn"
+                            onClick={() => deleteCustomChallenge(challenge.id)}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <div className="custom-challenge-tip">
+                  <p>💡 提示：启用的自定义挑战会加入每日挑战轮换池，与内置挑战一起按日期循环出现。</p>
+                </div>
+              </>
+            ) : (
+              <div className="custom-challenge-form">
+                <div className="form-header">
+                  <h3>{editingCustomChallenge ? "编辑挑战" : "创建新挑战"}</h3>
+                </div>
+
+                <div className="form-section">
+                  <label className="form-label">挑战类型</label>
+                  <div className="challenge-type-selector">
+                    <button
+                      className={`challenge-type-option ${newChallengeType === "attract" ? "selected" : ""}`}
+                      onClick={() => setNewChallengeType("attract")}
+                    >
+                      <span className="type-icon">🎯</span>
+                      <span className="type-name">吸引指定昆虫</span>
+                      <span className="type-desc">让某种特定昆虫入住旅馆</span>
+                    </button>
+                    <button
+                      className={`challenge-type-option ${newChallengeType === "metric_limit" ? "selected" : ""}`}
+                      onClick={() => setNewChallengeType("metric_limit")}
+                    >
+                      <span className="type-icon">📊</span>
+                      <span className="type-name">指标达标</span>
+                      <span className="type-desc">在限定格数内达成某项环境指标</span>
+                    </button>
+                    <button
+                      className={`challenge-type-option ${newChallengeType === "dual_insect" ? "selected" : ""}`}
+                      onClick={() => setNewChallengeType("dual_insect")}
+                    >
+                      <span className="type-icon">🐛🐛</span>
+                      <span className="type-name">双昆虫同时入住</span>
+                      <span className="type-desc">同时满足两种昆虫的入住条件</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-section">
+                  <label className="form-label">挑战标题</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="例如：夏日萤火虫"
+                    value={newChallengeTitle}
+                    onChange={(e) => setNewChallengeTitle(e.target.value)}
+                    maxLength={20}
+                  />
+                </div>
+
+                <div className="form-section">
+                  <label className="form-label">挑战描述</label>
+                  <textarea
+                    className="form-textarea"
+                    placeholder="描述一下这个挑战的目标和难度..."
+                    value={newChallengeDesc}
+                    onChange={(e) => setNewChallengeDesc(e.target.value)}
+                    maxLength={50}
+                    rows={2}
+                  />
+                </div>
+
+                {newChallengeType === "attract" && (
+                  <div className="form-section">
+                    <label className="form-label">目标昆虫</label>
+                    <div className="insect-selector">
+                      {insects.map((insect) => (
+                        <button
+                          key={insect.id}
+                          className={`insect-option ${newChallengeInsectId === insect.id ? "selected" : ""}`}
+                          onClick={() => setNewChallengeInsectId(insect.id)}
+                        >
+                          <span className="insect-option-icon">{insect.icon}</span>
+                          <span>{insect.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {newChallengeType === "metric_limit" && (
+                  <>
+                    <div className="form-section">
+                      <label className="form-label">目标指标</label>
+                      <div className="metric-selector">
+                        {(Object.keys(metricLabels) as Metric[]).map((metric) => (
+                          <button
+                            key={metric}
+                            className={`metric-option ${newChallengeMetric === metric ? "selected" : ""}`}
+                            onClick={() => setNewChallengeMetric(metric)}
+                          >
+                            {metricLabels[metric]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="form-section form-row">
+                      <div className="form-col">
+                        <label className="form-label">目标值</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          min={1}
+                          max={20}
+                          value={newChallengeMetricValue}
+                          onChange={(e) => setNewChallengeMetricValue(parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="form-col">
+                        <label className="form-label">最多格数</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          min={1}
+                          max={12}
+                          value={newChallengeMaxCells}
+                          onChange={(e) => setNewChallengeMaxCells(parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {newChallengeType === "dual_insect" && (
+                  <div className="form-section">
+                    <label className="form-label">选择两种昆虫（已选 {newChallengeInsectIds.length}/2）</label>
+                    <div className="insect-selector">
+                      {insects.map((insect) => {
+                        const selected = newChallengeInsectIds.includes(insect.id);
+                        const disabled = !selected && newChallengeInsectIds.length >= 2;
+                        return (
+                          <button
+                            key={insect.id}
+                            className={`insect-option ${selected ? "selected" : ""} ${disabled ? "disabled" : ""}`}
+                            onClick={() => !disabled && toggleDualInsectId(insect.id)}
+                            disabled={disabled}
+                          >
+                            <span className="insect-option-icon">{insect.icon}</span>
+                            <span>{insect.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-section">
+                  <label className="form-label">成功反馈语</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="例如：太棒了！挑战成功！"
+                    value={newChallengeSuccessMsg}
+                    onChange={(e) => setNewChallengeSuccessMsg(e.target.value)}
+                    maxLength={30}
+                  />
+                </div>
+
+                <div className="form-section">
+                  <label className="form-label">失败反馈语</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="例如：还差一点点，继续加油！"
+                    value={newChallengeFailMsg}
+                    onChange={(e) => setNewChallengeFailMsg(e.target.value)}
+                    maxLength={30}
+                  />
+                </div>
+
+                <div className="form-actions">
+                  <button className="form-btn secondary" onClick={closeChallengeForm}>
+                    取消
+                  </button>
+                  <button
+                    className="form-btn primary"
+                    onClick={handleSaveChallenge}
+                    disabled={!newChallengeTitle.trim() || (newChallengeType === "dual_insect" && newChallengeInsectIds.length < 2)}
+                  >
+                    {editingCustomChallenge ? "保存修改" : "创建挑战"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {showSeasonPanel && (
         <div className="season-overlay" onClick={() => setShowSeasonPanel(false)}>
           <div className="season-modal" onClick={(e) => e.stopPropagation()}>
@@ -3731,7 +4208,10 @@ export default function App() {
                     <div className="eco-calendar-season-tag" style={{ color: day.recommendedSeason.color }}>
                       {day.recommendedSeason.icon} {day.recommendedSeason.name}
                     </div>
-                    <h4 className="eco-calendar-challenge-title">{day.challenge.title}</h4>
+                    <h4 className="eco-calendar-challenge-title">
+                      {day.challenge.title}
+                      {day.challenge.isCustom && <span className="custom-badge-small">自定义</span>}
+                    </h4>
                     <div className="eco-calendar-insects-row">
                       {day.beneficialInsects.slice(0, 3).map((insect) => (
                         <span key={insect.id} className="eco-calendar-insect-mini" title={insect.name}>
@@ -4710,7 +5190,7 @@ export default function App() {
                       <div className="log-list">
                         {[...filtered].reverse().map((log) => {
                           const logSeason = log.seasonId ? seasons.find((s) => s.id === log.seasonId) : null;
-                          const logChallenge = challengePool.find((c) => c.id === log.challengeId);
+                          const logChallenge = findChallengeById(log.challengeId, customChallenges);
                           return (
                             <article key={log.id} className="log-card">
                               <div className="log-card-header">
