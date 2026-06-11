@@ -4885,6 +4885,84 @@ meter {
   box-shadow: 0 0 0 3px rgba(139, 107, 156, 0.15);
 }
 
+.sim-seed-mode {
+  display: flex;
+  gap: 8px;
+}
+
+.sim-seed-mode-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #fffaf0;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #4a5630;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.sim-seed-mode-btn:hover {
+  background: #faf5e5;
+  border-color: rgba(139, 107, 156, 0.3);
+}
+
+.sim-seed-mode-btn.selected {
+  border-color: #8b6b9c;
+  background: linear-gradient(135deg, rgba(139, 107, 156, 0.15), rgba(139, 107, 156, 0.05));
+  color: #5a3f70;
+}
+
+.sim-seed-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sim-seed-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid #d9c698;
+  border-radius: 10px;
+  background: #fffaf0;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: #2a3518;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-seed-input:focus {
+  outline: none;
+  border-color: #8b6b9c;
+  box-shadow: 0 0 0 3px rgba(139, 107, 156, 0.15);
+}
+
+.sim-seed-random-btn {
+  padding: 10px 14px;
+  border: 2px solid #d9c698;
+  border-radius: 10px;
+  background: #fffaf0;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all 0.15s;
+}
+
+.sim-seed-random-btn:hover {
+  background: #faf5e5;
+  border-color: #8b6b9c;
+  transform: rotate(15deg);
+}
+
+.sim-seed-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8a7a52;
+  font-style: italic;
+}
+
 .sim-run-btn {
   padding: 16px 24px;
   border: 0;
@@ -5037,6 +5115,113 @@ meter {
   font-size: 0.75rem;
   color: #6a7258;
   font-weight: 700;
+}
+
+.sim-seed-display {
+  margin: 6px 0 0 0;
+  font-size: 0.82rem;
+  color: #6a7258;
+}
+
+.sim-seed-display code {
+  background: #fffaf0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  color: #5a3f70;
+  font-weight: 700;
+  border: 1px solid rgba(139, 107, 156, 0.25);
+}
+
+.sim-compare {
+  padding: 18px 28px;
+  border-bottom: 1px solid rgba(217, 119, 6, 0.15);
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.06), transparent);
+}
+
+.sim-compare-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.sim-compare-header h3 {
+  margin: 0;
+  color: #854d0e;
+  font-size: 1rem;
+}
+
+.sim-compare-seed {
+  font-size: 0.78rem;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.sim-compare-seed code {
+  background: #fffbeb;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  color: #92400e;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+
+.sim-compare-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.sim-compare-card {
+  padding: 14px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  text-align: center;
+}
+
+.sim-compare-label {
+  font-size: 0.75rem;
+  color: #92400e;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.sim-compare-values {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sim-compare-current {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #78350f;
+  line-height: 1.1;
+}
+
+.sim-compare-delta {
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-compare-delta.positive {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.sim-compare-delta.negative {
+  color: #991b1b;
+  background: rgba(153, 27, 27, 0.12);
 }
 
 .sim-timeline-header {

@@ -166,10 +166,23 @@ type SimConfig = {
   startDate: string;
   seasonMode: "auto" | "fixed";
   fixedSeasonId: SeasonId | null;
+  seedMode: "random" | "fixed";
+  seedValue: number;
+};
+
+type SimCompareStats = {
+  totalArrivals: number;
+  totalDepartures: number;
+  challengeWinRate: number;
+  avgEcology: number;
+  avgAttraction: number;
+  avgSpace: number;
+  avgOverall: number;
 };
 
 type SimulationResult = {
   config: SimConfig;
+  seed: number;
   sourceName: string;
   sourcePlaced: string[];
   sourceGuests: string[];
@@ -182,6 +195,7 @@ type SimulationResult = {
     avgEcology: number;
     avgAttraction: number;
     avgSpace: number;
+    avgOverall: number;
   };
   finalState: {
     placed: string[];
@@ -201,6 +215,7 @@ const seasonStorageKey = "hxwl-3-season";
 const logStorageKey = "hxwl-3-observation-logs";
 const logNoteStorageKey = "hxwl-3-log-notes";
 const customChallengesStorageKey = "hxwl-3-custom-challenges";
+const lastSimResultStorageKey = "hxwl-3-last-sim-result";
 const MAX_SNAPSHOTS = 5;
 const MAX_CUSTOM_CHALLENGES = 20;
 
@@ -499,6 +514,43 @@ function addDaysToDate(dateStr: string, days: number): Date {
   return date;
 }
 
+function createSeededRandom(seed: number): () => number {
+  let t = seed >>> 0;
+  return function () {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = t;
+    r = Math.imul(r ^ (r >>> 15), r | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generateRandomSeed(): number {
+  return Math.floor(Math.random() * 2147483647);
+}
+
+function loadLastSimResult(): SimulationResult | null {
+  try {
+    const saved = localStorage.getItem(lastSimResultStorageKey);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as SimulationResult;
+    if (parsed && parsed.config && parsed.days) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastSimResult(result: SimulationResult): void {
+  try {
+    localStorage.setItem(lastSimResultStorageKey, JSON.stringify(result));
+  } catch {
+    // ignore
+  }
+}
+
 function runEcosystemSimulation(
   config: SimConfig,
   initialPlaced: string[],
@@ -506,6 +558,9 @@ function runEcosystemSimulation(
   allSnapshots: Snapshot[],
   customChallenges: Challenge[] = []
 ): SimulationResult {
+  const seed = config.seedMode === "fixed" ? config.seedValue : generateRandomSeed();
+  const random = createSeededRandom(seed);
+
   const days: SimDayResult[] = [];
   let currentGuests = [...initialGuests];
   const residenceDays: Record<string, number> = {};
@@ -520,6 +575,7 @@ function runEcosystemSimulation(
   let ecologySum = 0;
   let attractionSum = 0;
   let spaceSum = 0;
+  let overallSum = 0;
   let challengeWins = 0;
 
   for (let dayIdx = 0; dayIdx < config.daysCount; dayIdx++) {
@@ -600,7 +656,7 @@ function runEcosystemSimulation(
         totalPenalty,
         seasonMatch
       );
-      const rnd = Math.random();
+      const rnd = random();
       if (rnd <= stayProb) {
         stayed.push(insectId);
         newResidenceDays[insectId] = (newResidenceDays[insectId] || 0) + 1;
@@ -647,7 +703,7 @@ function runEcosystemSimulation(
         stayed
       );
       if (arrivalProb <= 0) return;
-      const rnd = Math.random();
+      const rnd = random();
       if (rnd <= arrivalProb) {
         arrivals.push(insect.id);
         stayed.push(insect.id);
@@ -773,6 +829,7 @@ function runEcosystemSimulation(
     ecologySum += ecologyScore;
     attractionSum += attractionScore;
     spaceSum += spaceScore;
+    overallSum += Math.round((ecologyScore + attractionScore + spaceScore) / 3);
     peakGuests = Math.max(peakGuests, currentGuests.length);
 
     const avgScore = (ecologyScore + attractionScore + spaceScore) / 3;
@@ -835,6 +892,7 @@ function runEcosystemSimulation(
 
   return {
     config,
+    seed,
     sourceName,
     sourcePlaced: initialPlaced,
     sourceGuests: initialGuests,
@@ -846,7 +904,8 @@ function runEcosystemSimulation(
       challengeWinRate: Math.round((challengeWins / config.daysCount) * 100),
       avgEcology: Math.round(ecologySum / config.daysCount),
       avgAttraction: Math.round(attractionSum / config.daysCount),
-      avgSpace: Math.round(spaceSum / config.daysCount)
+      avgSpace: Math.round(spaceSum / config.daysCount),
+      avgOverall: Math.round(overallSum / config.daysCount)
     },
     finalState: {
       placed: [...placed],
@@ -1881,9 +1940,12 @@ export default function App() {
     daysCount: SIM_DAYS_COUNT,
     startDate: getTodayString(),
     seasonMode: "auto",
-    fixedSeasonId: null
+    fixedSeasonId: null,
+    seedMode: "random",
+    seedValue: generateRandomSeed()
   });
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
+  const [lastSimResult, setLastSimResult] = useState<SimulationResult | null>(loadLastSimResult);
   const [simSelectedDayIndex, setSimSelectedDayIndex] = useState<number>(0);
   const [isSimRunning, setIsSimRunning] = useState(false);
 
@@ -2981,7 +3043,9 @@ export default function App() {
       daysCount: SIM_DAYS_COUNT,
       startDate: getTodayString(),
       seasonMode: "auto",
-      fixedSeasonId: currentSeasonId
+      fixedSeasonId: currentSeasonId,
+      seedMode: "random",
+      seedValue: generateRandomSeed()
     });
     setSimResult(null);
     setSimSelectedDayIndex(0);
@@ -3005,6 +3069,8 @@ export default function App() {
       }
       const result = runEcosystemSimulation(simConfig, initialPlaced, initialGuests, snapshots, customChallenges);
       setSimResult(result);
+      setLastSimResult(result);
+      saveLastSimResult(result);
       setSimSelectedDayIndex(0);
       setIsSimRunning(false);
     }, 50);
@@ -4715,6 +4781,44 @@ export default function App() {
                 />
               </div>
 
+              <div className="sim-config-section">
+                <label className="sim-config-label">🔢 随机种子</label>
+                <div className="sim-seed-mode">
+                  <button
+                    className={`sim-seed-mode-btn ${simConfig.seedMode === "random" ? "selected" : ""}`}
+                    onClick={() => setSimConfig((c) => ({ ...c, seedMode: "random", seedValue: generateRandomSeed() }))}
+                  >
+                    🎲 随机种子
+                  </button>
+                  <button
+                    className={`sim-seed-mode-btn ${simConfig.seedMode === "fixed" ? "selected" : ""}`}
+                    onClick={() => setSimConfig((c) => ({ ...c, seedMode: "fixed" }))}
+                  >
+                    🔒 固定种子
+                  </button>
+                </div>
+                <div className="sim-seed-input-row">
+                  <input
+                    type="number"
+                    value={simConfig.seedValue}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setSimConfig((c) => ({ ...c, seedMode: "fixed", seedValue: Math.max(0, Math.min(2147483647, val)) }));
+                    }}
+                    className="sim-seed-input"
+                    placeholder="输入种子数值"
+                  />
+                  <button
+                    className="sim-seed-random-btn"
+                    onClick={() => setSimConfig((c) => ({ ...c, seedValue: generateRandomSeed() }))}
+                    title="生成随机种子"
+                  >
+                    🎲
+                  </button>
+                </div>
+                <p className="sim-seed-hint">相同的起点、日期、季节模式和种子，将得到完全一致的14天结果</p>
+              </div>
+
               <button
                 className="sim-run-btn"
                 onClick={handleRunSimulation}
@@ -4735,7 +4839,10 @@ export default function App() {
               <>
                 <div className="sim-summary">
                   <div className="sim-summary-header">
-                    <h3>📊 模拟汇总 · 基于「{simResult.sourceName}」</h3>
+                    <div>
+                      <h3>📊 模拟汇总 · 基于「{simResult.sourceName}」</h3>
+                      <p className="sim-seed-display">🔢 随机种子：<code>{simResult.seed}</code>（{simResult.config.seedMode === "random" ? "随机生成" : "固定种子"}）</p>
+                    </div>
                     <button className="sim-apply-btn" onClick={applySimulationResult}>
                       ✅ 应用模拟第{SIM_DAYS_COUNT}天结果到真实旅馆
                     </button>
@@ -4775,6 +4882,57 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {lastSimResult && (
+                  <div className="sim-compare">
+                    <div className="sim-compare-header">
+                      <h3>📊 与上次结果对比</h3>
+                      <span className="sim-compare-seed">上次种子：<code>{lastSimResult.seed}</code></span>
+                    </div>
+                    <div className="sim-compare-cards">
+                      <div className="sim-compare-card">
+                        <div className="sim-compare-label">累计新入住</div>
+                        <div className="sim-compare-values">
+                          <span className="sim-compare-current">{simResult.summaryStats.totalArrivals}</span>
+                          <span className={`sim-compare-delta ${simResult.summaryStats.totalArrivals - lastSimResult.summaryStats.totalArrivals >= 0 ? "positive" : "negative"}`}>
+                            {simResult.summaryStats.totalArrivals - lastSimResult.summaryStats.totalArrivals >= 0 ? "▲" : "▼"}
+                            {Math.abs(simResult.summaryStats.totalArrivals - lastSimResult.summaryStats.totalArrivals)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="sim-compare-card">
+                        <div className="sim-compare-label">累计离开</div>
+                        <div className="sim-compare-values">
+                          <span className="sim-compare-current">{simResult.summaryStats.totalDepartures}</span>
+                          <span className={`sim-compare-delta ${simResult.summaryStats.totalDepartures - lastSimResult.summaryStats.totalDepartures <= 0 ? "positive" : "negative"}`}>
+                            {simResult.summaryStats.totalDepartures - lastSimResult.summaryStats.totalDepartures >= 0 ? "▲" : "▼"}
+                            {Math.abs(simResult.summaryStats.totalDepartures - lastSimResult.summaryStats.totalDepartures)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="sim-compare-card">
+                        <div className="sim-compare-label">挑战成功率</div>
+                        <div className="sim-compare-values">
+                          <span className="sim-compare-current">{simResult.summaryStats.challengeWinRate}%</span>
+                          <span className={`sim-compare-delta ${simResult.summaryStats.challengeWinRate - lastSimResult.summaryStats.challengeWinRate >= 0 ? "positive" : "negative"}`}>
+                            {simResult.summaryStats.challengeWinRate - lastSimResult.summaryStats.challengeWinRate >= 0 ? "▲" : "▼"}
+                            {Math.abs(simResult.summaryStats.challengeWinRate - lastSimResult.summaryStats.challengeWinRate)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="sim-compare-card">
+                        <div className="sim-compare-label">平均评分</div>
+                        <div className="sim-compare-values">
+                          <span className="sim-compare-current">{simResult.summaryStats.avgOverall}</span>
+                          <span className={`sim-compare-delta ${simResult.summaryStats.avgOverall - lastSimResult.summaryStats.avgOverall >= 0 ? "positive" : "negative"}`}>
+                            {simResult.summaryStats.avgOverall - lastSimResult.summaryStats.avgOverall >= 0 ? "▲" : "▼"}
+                            {Math.abs(simResult.summaryStats.avgOverall - lastSimResult.summaryStats.avgOverall)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="sim-timeline-header">
                   <h3>⏳ 时间线</h3>
