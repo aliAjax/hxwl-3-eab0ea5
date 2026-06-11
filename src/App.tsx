@@ -74,10 +74,10 @@ type ObservationLog = {
   challengeId: string;
   challengeTitle: string;
   challengeSuccess: boolean;
-  hotelGrade: string;
-  ecologyBalance: number;
-  visitorAttraction: number;
-  spaceUtilization: number;
+  hotelGrade?: string;
+  ecologyBalance?: number;
+  visitorAttraction?: number;
+  spaceUtilization?: number;
   createdAt: string;
 };
 
@@ -1240,6 +1240,10 @@ function hasCompleteMetrics(log: ObservationLog): boolean {
     log.hotelGrade !== null &&
     log.hotelGrade !== ""
   );
+}
+
+function formatLogRatingMetric(value: number | undefined): string {
+  return typeof value === "number" ? String(value) : "—";
 }
 
 type TrendMetrics = {
@@ -6235,9 +6239,9 @@ export default function App() {
                                 <div className="log-card-section">
                                   <h4>⭐ 旅馆评级</h4>
                                   <div className="log-rating-row">
-                                    <span className="log-rating-chip ecology">生态 {log.ecologyBalance}</span>
-                                    <span className="log-rating-chip attraction">吸引 {log.visitorAttraction}</span>
-                                    <span className="log-rating-chip space">空间 {log.spaceUtilization}</span>
+                                    <span className="log-rating-chip ecology">生态 {formatLogRatingMetric(log.ecologyBalance)}</span>
+                                    <span className="log-rating-chip attraction">吸引 {formatLogRatingMetric(log.visitorAttraction)}</span>
+                                    <span className="log-rating-chip space">空间 {formatLogRatingMetric(log.spaceUtilization)}</span>
                                   </div>
                                 </div>
 
