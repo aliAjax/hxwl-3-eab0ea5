@@ -1730,8 +1730,8 @@ function compareSnapshotWithCurrent(
     const current = currentPlacedPadded[index] || null;
     const snap = snapshotPlacedPadded[index] || null;
     let changeType: "added" | "removed" | "changed" | "same" = "same";
-    if (!current && snap) changeType = "added";
-    else if (current && !snap) changeType = "removed";
+    if (current && !snap) changeType = "added";
+    else if (!current && snap) changeType = "removed";
     else if (current && snap && current !== snap) changeType = "changed";
     return { index, current, snapshot: snap, changeType };
   });
@@ -3293,10 +3293,16 @@ export default function App() {
                             <span className="compare-cell-icon" style={{ background: currentDeco.color }}>{currentDeco.icon}</span>
                           )}
                           {diff.changeType === "added" && currentDeco && (
-                            <span className="compare-cell-icon" style={{ background: currentDeco.color }}>{currentDeco.icon}</span>
+                            <div className="compare-cell-added">
+                              <span className="compare-cell-icon" style={{ background: currentDeco.color }}>{currentDeco.icon}</span>
+                              <span className="compare-cell-badge add">+</span>
+                            </div>
                           )}
                           {diff.changeType === "removed" && snapshotDeco && (
-                            <span className="compare-cell-icon" style={{ background: snapshotDeco.color }}>{snapshotDeco.icon}</span>
+                            <div className="compare-cell-removed">
+                              <span className="compare-cell-icon" style={{ background: snapshotDeco.color }}>{snapshotDeco.icon}</span>
+                              <span className="compare-cell-badge remove">×</span>
+                            </div>
                           )}
                           {diff.changeType === "changed" && (
                             <div className="compare-cell-changed">
